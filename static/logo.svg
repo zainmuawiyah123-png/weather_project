@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="شعار طقس بلاد الشام">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0B4F6C"/>
+      <stop offset="0.6" stop-color="#1B86A8"/>
+      <stop offset="1" stop-color="#F2A33A"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD25A"/>
+      <stop offset="1" stop-color="#FF8A3D"/>
+    </linearGradient>
+    <clipPath id="tile"><rect width="128" height="128" rx="30"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="128" height="128" fill="url(#sky)"/>
+    <circle cx="64" cy="70" r="26" fill="url(#sun)"/>
+    <!-- سحابة صغيرة -->
+    <g fill="#FFFFFF" opacity="0.95">
+      <ellipse cx="92" cy="40" rx="14" ry="7"/>
+      <circle cx="86" cy="36" r="7"/>
+      <circle cx="98" cy="35" r="6"/>
+    </g>
+    <!-- سلسلة الجبال: خلفية ثم أمامية -->
+    <path d="M0 98 L24 80 L40 92 L62 70 L88 94 L108 82 L128 98 V128 H0 Z" fill="#0E6A7F"/>
+    <path d="M0 108 L30 90 L50 102 L74 84 L100 104 L128 92 V128 H0 Z" fill="#073B4F"/>
+  </g>
+</svg>
