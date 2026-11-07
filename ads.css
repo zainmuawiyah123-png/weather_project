@@ -1,0 +1,66 @@
+/*!
+ * ads.css - أنماط الإعلانات وشريط الموافقة - طقس بلاد الشام
+ * مصمّمة لتندمج مع التصميم ولا تُفسده على الجوال.
+ */
+.lw-consent {
+  position: fixed; inset-inline: 12px; bottom: 12px; z-index: 9999;
+  max-width: 720px; margin: 0 auto; padding: 14px 16px;
+  background: var(--surface, #fff); color: var(--ink, #0b2f40);
+  border: 1px solid var(--line, #d3e1e3); border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
+  font-family: "Cairo", system-ui, sans-serif; font-size: .9rem; line-height: 1.6;
+}
+.lw-consent p { margin: 0 0 10px; }
+.lw-consent a { color: var(--cold, #0b6e99); }
+.lw-consent-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.lw-consent button {
+  font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px;
+  padding: 8px 16px; border: 1px solid transparent;
+  background: var(--cold, #0b6e99); color: #fff;
+}
+.lw-consent button.ghost { background: transparent; color: var(--ink, #0b2f40); border-color: var(--line, #d3e1e3); }
+
+/* ---------- الأماكن الإعلانية ---------- */
+.ad-slot {
+  position: relative; margin: 18px 0; padding: 10px;
+  background: var(--surface, #fff); border: 1px dashed var(--line, #d3e1e3);
+  border-radius: 14px; text-align: center; overflow: hidden;
+  min-height: 60px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+}
+.ad-slot:empty { display: none; }
+.ad-slot.lw-ad-filled { border-style: solid; }
+/* الوسم في التدفق لا مطلق الموضع: يمنع تراكبه مع نص الإعلان على الجوال */
+.lw-ad-label {
+  display: block; width: fit-content; margin: 0 0 6px;
+  font-size: .68rem; font-weight: 700; letter-spacing: .02em;
+  color: var(--muted, #4b6874); background: var(--bg, #e8f1f2);
+  border: 1px solid var(--line, #d3e1e3); border-radius: 999px; padding: 1px 8px;
+}
+/* البانرات الصورية: الوسم يبقى مطلقاً فوق الصورة (لا نص يتراكب معه) */
+.ad-slot[data-kind="image"] .lw-ad-label {
+  position: absolute; top: 6px; inset-inline-start: 10px; margin: 0; z-index: 2;
+}
+.lw-ad-link { display: block; text-decoration: none; color: inherit; width: 100%; }
+.lw-ad-link img { max-width: 100%; height: auto; border-radius: 8px; display: block; margin: 0 auto; }
+.lw-ad-text { display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; text-align: start; }
+.lw-ad-text b { font-size: 1rem; color: var(--ink, #0b2f40); }
+.lw-ad-text span { font-size: .88rem; color: var(--muted, #4b6874); }
+.lw-ad-cta {
+  align-self: flex-start; font-style: normal; font-weight: 700; font-size: .82rem;
+  color: var(--cold, #0b6e99); border: 1px solid var(--cold, #0b6e99);
+  border-radius: 999px; padding: 2px 12px; margin-top: 2px;
+}
+/* رعاية التنبيهات: سطر أصلي لا يشبه البانر */
+.ad-slot[data-placement="alert_sponsor"] {
+  border: 0; background: transparent; padding: 0; margin: 8px 0; text-align: start;
+}
+.ad-slot[data-placement="alert_sponsor"] .lw-ad-label { position: static; display: inline-block; margin-bottom: 4px; }
+.ad-slot[data-placement="alert_sponsor"] .lw-ad-text { padding: 0; }
+
+/* على الجوال: نقلّل الحشو ونمنع الفائض */
+@media (max-width: 520px) {
+  .ad-slot { margin: 14px 0; padding: 8px; }
+  .lw-ad-link img { max-width: 100%; }
+  .lw-consent { inset-inline: 8px; bottom: 8px; font-size: .85rem; }
+}

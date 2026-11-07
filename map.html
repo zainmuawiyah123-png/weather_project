@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/static/ads.css">
 <style>
   :root {
     --bg: #e8f1f2; --surface: #ffffff; --ink: #0b2f40; --muted: #4b6874; --line: #d3e1e3;
@@ -88,6 +89,8 @@
 <div id="map" role="region" aria-label="خريطة الطقس"></div>
 <div class="legend" id="legend"></div>
 <div id="status" role="status">جارٍ تحميل الخريطة…</div>
+
+<div class="ad-slot" data-placement="map_side"></div>
 
 <h2>التنبيهات النشطة</h2>
 <div class="list" id="alertList"><p class="muted">جارٍ تحميل تنبيهات المدن…</p></div>
@@ -292,5 +295,6 @@ buildLegend();
 loadGrid();
 loadCities();
 </script>
+<script src="/static/ads.js"></script>
 </body>
 </html>

@@ -1,22 +1,32 @@
 """
 الإشعارات (Web Push) - طقس بلاد الشام
 
-- مفاتيح VAPID تُولَّد تلقائياً أول مرة وتُحفظ في vapid_private.pem (لا ترفعها إلى GitHub)
-- الاشتراكات في push.db: جهاز واحد = مدينة واحدة + أدنى مستوى تنبيه
+- مفاتيح VAPID تُولَّد تلقائياً أول مرة وتُحفظ في DATA_DIR/vapid_private.pem (لا ترفعها إلى GitHub)
+- الاشتراكات في DATA_DIR/push.db: جهاز واحد = مدينة واحدة + أدنى مستوى تنبيه
 - منع التكرار: نفس (المدينة، النوع، المستوى، اليوم) يُرسل مرة واحدة لكل جهاز، والتصعيد إلى مستوى أعلى يُرسل
-- ساعات الهدوء 23:00-06:00 بتوقيت المدينة، وحد أقصى 3 إشعارات يومياً لكل جهاز؛ الأحمر يتجاوز الاثنين
+- ساعات الهدوء 23:00-06:00 بتوقيت المدينة، وحد أقصى 3 إشعارات يومياً لكل جهاز؛ الأحمر يتجاوزها
+
+إصلاحات هذه النسخة:
+1. حماية SSRF: لا يُقبل أي رابط اشتراك إلا من نطاقات خدمات الإشعارات المعروفة،
+   وتُرفض العناوين الداخلية (security.validate_subscription).
+2. ربط الاشتراك بمن طلبه: كل اشتراك يحصل على رمز مالك عشوائي، ولا يمكن إلغاؤه
+   أو اختباره إلا بهذا الرمز.
+3. لا يسقط الخادم (500) عند مفاتيح اشتراك تالفة: كل أخطاء الإرسال تُلتقط.
+4. لا كتابة عند الاستيراد: قاعدة البيانات تُنشأ عند أول استخدام فعلي.
 """
 import base64
+import binascii
 import json
 import logging
-import os
+import secrets
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
+import config
+import security
 from alerts import LEVEL_NAMES
 
 try:
@@ -29,14 +39,15 @@ except ImportError:  # يسمح بتشغيل بقية التطبيق حتى لو
 
 log = logging.getLogger("levant-weather.push")
 
-BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "push.db"
-VAPID_PEM = BASE_DIR / "vapid_private.pem"
-VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:admin@example.com")
+DB_PATH = config.PUSH_DB
+VAPID_PEM = config.VAPID_PEM
+VAPID_SUBJECT = config.VAPID_SUBJECT
 
 MAX_PER_DAY = 3
 QUIET_FROM, QUIET_TO = 23, 6
 MAX_LEAD_HOURS = 24  # لا نرسل إلا إن كان الخطر خلال 24 ساعة (الأحمر يُرسل دائماً)
+
+_initialized = False
 
 
 # ---------- المفاتيح ----------
@@ -51,6 +62,10 @@ def ensure_keys() -> None:
             serialization.NoEncryption(),
         )
     )
+    try:
+        VAPID_PEM.chmod(0o600)
+    except OSError:
+        pass
 
 
 def public_key_b64() -> str:
@@ -68,24 +83,35 @@ def _db():
 
 
 def init_db() -> None:
+    """يُنشئ الجداول عند أول استخدام فعلي (لا كتابة عند الاستيراد)."""
+    global _initialized
+    if _initialized:
+        return
     with _db() as db:
         db.execute(
             """CREATE TABLE IF NOT EXISTS subs (
                 endpoint TEXT PRIMARY KEY, sub_json TEXT, city TEXT,
-                min_level INTEGER, types TEXT, created TEXT)"""
+                min_level INTEGER, types TEXT, created TEXT, owner TEXT)"""
         )
         db.execute(
             """CREATE TABLE IF NOT EXISTS sent (
                 endpoint TEXT, key TEXT, sent_at TEXT,
                 PRIMARY KEY (endpoint, key))"""
         )
+        # ترقية قواعد البيانات القديمة التي لا تحتوي عمود owner
+        cols = {r[1] for r in db.execute("PRAGMA table_info(subs)")}
+        if "owner" not in cols:
+            db.execute("ALTER TABLE subs ADD COLUMN owner TEXT")
+    _initialized = True
 
 
-def save_sub(sub: dict, city: str, min_level: int, types: list[str]) -> None:
+def save_sub(sub: dict, city: str, min_level: int, types: list[str]) -> str:
+    """يحفظ اشتراكاً ويعيد رمز المالك (سرّي، يُسلَّم للعميل مرة واحدة)."""
     init_db()
+    owner = secrets.token_urlsafe(24)
     with _db() as db:
         db.execute(
-            "INSERT OR REPLACE INTO subs VALUES (?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO subs VALUES (?,?,?,?,?,?,?)",
             (
                 sub["endpoint"],
                 json.dumps(sub),
@@ -93,22 +119,35 @@ def save_sub(sub: dict, city: str, min_level: int, types: list[str]) -> None:
                 max(1, min(3, min_level)),
                 ",".join(types),
                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                owner,
             ),
         )
+    return owner
 
 
-def remove_sub(endpoint: str) -> None:
+def remove_sub(endpoint: str, owner: str | None = None) -> bool:
+    """يحذف اشتراكاً. إن مُرِّر owner فيجب أن يطابق (ربط الاشتراك بمن طلبه)."""
     init_db()
     with _db() as db:
+        if owner is not None:
+            row = db.execute("SELECT owner FROM subs WHERE endpoint=?", (endpoint,)).fetchone()
+            if not row or not secrets.compare_digest(row[0] or "", owner):
+                return False
         db.execute("DELETE FROM subs WHERE endpoint=?", (endpoint,))
         db.execute("DELETE FROM sent WHERE endpoint=?", (endpoint,))
+    return True
 
 
-def get_sub(endpoint: str):
+def get_sub(endpoint: str, owner: str | None = None):
+    """يعيد الاشتراك. إن مُرِّر owner فيجب أن يطابق."""
     init_db()
     with _db() as db:
-        row = db.execute("SELECT sub_json FROM subs WHERE endpoint=?", (endpoint,)).fetchone()
-    return json.loads(row[0]) if row else None
+        row = db.execute("SELECT sub_json, owner FROM subs WHERE endpoint=?", (endpoint,)).fetchone()
+    if not row:
+        return None
+    if owner is not None and not secrets.compare_digest(row[1] or "", owner):
+        return None
+    return json.loads(row[0])
 
 
 def subscribed_cities() -> list[str]:
@@ -119,11 +158,18 @@ def subscribed_cities() -> list[str]:
 
 # ---------- الإرسال ----------
 def send_push(sub: dict, payload: dict):
-    """True عند النجاح، 'gone' إن انتهى الاشتراك، False لأي فشل آخر."""
+    """True عند النجاح، 'gone' إن انتهى الاشتراك، False لأي فشل آخر.
+
+    لا يرفع استثناءً أبداً: مفاتيح تالفة أو شبكة معطلة تُعاد كـ False.
+    """
     if webpush is None:
         log.warning("pywebpush غير مثبتة: pip install pywebpush")
         return False
-    ensure_keys()
+    try:
+        ensure_keys()
+    except (OSError, ValueError) as e:
+        log.warning("تعذّر تجهيز مفاتيح VAPID: %s", e)
+        return False
     try:
         webpush(
             subscription_info=sub,
@@ -137,6 +183,13 @@ def send_push(sub: dict, payload: dict):
         if status in (404, 410):
             return "gone"
         log.warning("فشل إرسال إشعار: %s", e)
+        return False
+    except (binascii.Error, ValueError, TypeError, KeyError) as e:
+        # مفاتيح اشتراك تالفة (base64 غير صالح، حقول ناقصة...) — لا نُسقط الخادم
+        log.warning("اشتراك تالف، تعذّر الإرسال: %s", e)
+        return False
+    except Exception as e:  # شبكة، مهلة، أي خطأ غير متوقع
+        log.warning("خطأ غير متوقع أثناء الإرسال: %s", e)
         return False
 
 
@@ -169,7 +222,10 @@ def notify_city(slug: str, w: dict, send=send_push) -> int:
             count_today = db.execute(
                 "SELECT COUNT(*) FROM sent WHERE endpoint=? AND sent_at>=?", (endpoint, today)
             ).fetchone()[0]
-            sub = json.loads(sub_json)
+            try:
+                sub = json.loads(sub_json)
+            except (ValueError, TypeError):
+                continue
 
             for a in w.get("alerts", []):
                 red = a["level"] >= 3

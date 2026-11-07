@@ -1,218 +1,553 @@
-"""Manual advertising workflow. SQLite is intentionally exportable because Render Free has ephemeral storage."""
-import hmac
-import json
-import os
+"""
+محرك الإعلانات - طقس بلاد الشام
+Advertising engine: advertisers, campaigns, creatives, placements, serving,
+impression/click tracking, revenue reporting, ads.txt and network codes.
+
+المفاهيم:
+- المعلن (advertiser): الجهة المعلنة.
+- الحملة (campaign): لمعلن، لها مكان (placement) وصيغة (format) وجدولة (بداية/نهاية)
+  وميزانية وسعر (CPM أو CPC أو مبلغ ثابت) وأولوية.
+- الإبداع (creative): بانر صورة أو إعلان نصي أو رعاية موسمية.
+- الظهور/النقرة: تُسجَّل لكل حملة وإبداع ومكان.
+- الإيراد: يُحسب من السعر: CPM = ظهور/1000 × السعر، CPC = نقرات × السعر،
+  ثابت = السعر موزّعاً على أيام الحملة الفعلية.
+
+الأماكن القياسية (مقاسات IAB):
+  home_top      728×90   لوحة قيادة (Leaderboard)
+  home_mid      336×280  مستطيل كبير
+  home_bottom   970×90   لوحة عريضة
+  city_top      728×90
+  city_mid      300×250  مستطيل متوسط
+  map_side      300×600  نصف صفحة
+  alert_sponsor نصية     رعاية موسمية لتنبيهات الطقس
+"""
+import csv
+import io
+import logging
+import secrets
 import sqlite3
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import urlparse
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel, Field, HttpUrl
+import config
 
-DB_PATH = Path(os.getenv("ADS_DB_PATH", "/tmp/levant-weather-ads.db"))
-ADMIN_PASSWORD = os.getenv("ADS_ADMIN_PASSWORD", "").strip()
-router = APIRouter()
-_rate = {}
+log = logging.getLogger("levant-weather.ads")
 
+DB_PATH = config.ADS_DB
+
+# ---------- الأماكن والمقاسات ----------
+PLACEMENTS = {
+    "home_top": {"label_ar": "الرئيسية - أعلى", "label_en": "Home - Top",
+                 "size": "728x90", "w": 728, "h": 90, "formats": ["image", "text"]},
+    "home_mid": {"label_ar": "الرئيسية - وسط", "label_en": "Home - Middle",
+                 "size": "336x280", "w": 336, "h": 280, "formats": ["image", "text"]},
+    "home_bottom": {"label_ar": "الرئيسية - أسفل", "label_en": "Home - Bottom",
+                    "size": "970x90", "w": 970, "h": 90, "formats": ["image", "text"]},
+    "city_top": {"label_ar": "صفحة المدينة - أعلى", "label_en": "City - Top",
+                 "size": "728x90", "w": 728, "h": 90, "formats": ["image", "text"]},
+    "city_mid": {"label_ar": "صفحة المدينة - وسط", "label_en": "City - Middle",
+                 "size": "300x250", "w": 300, "h": 250, "formats": ["image", "text"]},
+    "map_side": {"label_ar": "الخريطة - جانبي", "label_en": "Map - Side",
+                 "size": "300x600", "w": 300, "h": 600, "formats": ["image", "text"]},
+    "alert_sponsor": {"label_ar": "رعاية تنبيهات الطقس", "label_en": "Weather Alert Sponsorship",
+                      "size": "native", "w": 0, "h": 0, "formats": ["sponsor", "text"]},
+}
+
+# أسعار مقترحة بالدينار الأردني (تُعرض في صفحة "أعلن معنا")
+PRICE_LIST = [
+    {"placement": "home_top", "size": "728x90", "cpm": 4.5, "monthly": 180},
+    {"placement": "home_mid", "size": "336x280", "cpm": 5.0, "monthly": 200},
+    {"placement": "home_bottom", "size": "970x90", "cpm": 4.0, "monthly": 160},
+    {"placement": "city_top", "size": "728x90", "cpm": 3.5, "monthly": 140},
+    {"placement": "city_mid", "size": "300x250", "cpm": 4.0, "monthly": 160},
+    {"placement": "map_side", "size": "300x600", "cpm": 6.0, "monthly": 240},
+    {"placement": "alert_sponsor", "size": "native", "cpm": 8.0, "monthly": 320},
+]
+
+_initialized = False
+
+
+# ---------- قاعدة البيانات ----------
 def _db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
-    return db
+    return sqlite3.connect(DB_PATH)
 
-def init_db():
+
+def init_db() -> None:
+    global _initialized
+    if _initialized:
+        return
     with _db() as db:
-        db.executescript("""
-        CREATE TABLE IF NOT EXISTS requests (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, company TEXT NOT NULL, contact TEXT NOT NULL,
-          phone TEXT NOT NULL, email TEXT DEFAULT '', city TEXT DEFAULT '', slot TEXT NOT NULL,
-          duration TEXT DEFAULT '', website TEXT DEFAULT '', message TEXT DEFAULT '',
-          created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending'
-        );
-        CREATE TABLE IF NOT EXISTS ads (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, image_url TEXT DEFAULT '',
-          target_url TEXT NOT NULL, slot TEXT NOT NULL, city TEXT DEFAULT '',
-          starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
-          impressions INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL
-        );
-        """)
-init_db()
+        db.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS advertisers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL, company TEXT, email TEXT, phone TEXT,
+                notes TEXT, created TEXT
+            );
+            CREATE TABLE IF NOT EXISTS campaigns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                advertiser_id INTEGER, name TEXT NOT NULL, placement TEXT NOT NULL,
+                format TEXT NOT NULL DEFAULT 'image',
+                start_date TEXT, end_date TEXT, status TEXT DEFAULT 'active',
+                priority INTEGER DEFAULT 5, pricing TEXT DEFAULT 'cpm',
+                rate REAL DEFAULT 0, budget REAL DEFAULT 0, daily_cap INTEGER DEFAULT 0,
+                target_url TEXT, created TEXT
+            );
+            CREATE TABLE IF NOT EXISTS creatives (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                campaign_id INTEGER NOT NULL, kind TEXT DEFAULT 'image',
+                image_url TEXT, width INTEGER, height INTEGER,
+                title TEXT, body TEXT, cta TEXT, target_url TEXT,
+                active INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS impressions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                campaign_id INTEGER, creative_id INTEGER, placement TEXT,
+                ts TEXT, day TEXT, page TEXT
+            );
+            CREATE TABLE IF NOT EXISTS clicks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                campaign_id INTEGER, creative_id INTEGER, placement TEXT,
+                ts TEXT, day TEXT, page TEXT
+            );
+            CREATE TABLE IF NOT EXISTS leads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT, email TEXT, company TEXT, phone TEXT,
+                message TEXT, budget TEXT, status TEXT DEFAULT 'new', created TEXT
+            );
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+            CREATE INDEX IF NOT EXISTS idx_imp_day ON impressions(day, campaign_id);
+            CREATE INDEX IF NOT EXISTS idx_clk_day ON clicks(day, campaign_id);
+            """
+        )
+    _initialized = True
 
-class AdRequest(BaseModel):
-    company: str = Field(min_length=2, max_length=120)
-    contact: str = Field(min_length=2, max_length=100)
-    phone: str = Field(min_length=7, max_length=40)
-    email: str = Field(default="", max_length=160)
-    city: str = Field(default="", max_length=80)
-    slot: str = Field(min_length=2, max_length=30)
-    duration: str = Field(default="", max_length=80)
-    website: str = Field(default="", max_length=300)
-    message: str = Field(default="", max_length=1000)
-    website_confirm: str = ""  # honeypot
 
-class AdCreate(BaseModel):
-    title: str = Field(min_length=2, max_length=120)
-    image_url: str = Field(default="", max_length=1000)
-    target_url: str = Field(min_length=8, max_length=1000)
-    slot: str
-    city: str = ""
-    starts_at: str
-    ends_at: str
-    status: str = "active"
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-class StatusBody(BaseModel):
-    status: str
 
-class RestoreBody(BaseModel):
-    data: dict
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-def _admin(password):
-    if not ADMIN_PASSWORD:
-        raise HTTPException(503, "يجب ضبط ADS_ADMIN_PASSWORD في إعدادات Render أولاً")
-    if not password or not hmac.compare_digest(password, ADMIN_PASSWORD):
-        raise HTTPException(401, "كلمة المرور غير صحيحة")
 
-def _valid_url(value, required=False):
-    if not value and not required:
-        return True
-    u = urlparse(value)
-    return u.scheme == "https" and bool(u.netloc)
-
-@router.post("/api/ads/requests")
-def submit_request(body: AdRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    recent = [t for t in _rate.get(ip, []) if now - t < 3600]
-    if len(recent) >= 5:
-        raise HTTPException(429, "تم تجاوز عدد المحاولات. حاول لاحقاً.")
-    recent.append(now)
-    _rate[ip] = recent
-    if body.website_confirm:
-        return {"ok": True}
-    if body.slot not in {"home_top", "map_top", "city_top", "sponsorship"}:
-        raise HTTPException(422, "المساحة الإعلانية غير صحيحة")
-    if body.website and not _valid_url(body.website):
-        raise HTTPException(422, "رابط الموقع يجب أن يبدأ بـ https://")
+# ---------- الإعدادات ----------
+def get_setting(key: str, default: str = "") -> str:
+    init_db()
     with _db() as db:
-        cur = db.execute("""INSERT INTO requests
-          (company,contact,phone,email,city,slot,duration,website,message,created_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?)""",
-          (body.company.strip(),body.contact.strip(),body.phone.strip(),body.email.strip(),
-           body.city.strip(),body.slot,body.duration.strip(),body.website.strip(),
-           body.message.strip(),datetime.now(timezone.utc).isoformat()))
-        rid = cur.lastrowid
-    return {"ok": True, "id": rid, "message": "تم استلام طلبك. سنتواصل معك بعد مراجعته."}
+        row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
 
-@router.get("/api/ads/active")
-def active_ads(slot: str, city: str = ""):
-    if slot not in {"home_top", "map_top", "city_top"}:
-        raise HTTPException(400, "مساحة غير صحيحة")
-    now = datetime.now(timezone.utc).isoformat()
+
+def set_setting(key: str, value: str) -> None:
+    init_db()
     with _db() as db:
-        rows = db.execute("""SELECT id,title,image_url,target_url,slot,city FROM ads
-          WHERE status='active' AND starts_at<=? AND ends_at>=? AND (city='' OR city IS NULL OR city=?) AND slot=?
-          ORDER BY CASE WHEN city=? THEN 0 ELSE 1 END, id DESC LIMIT 3""", (now,now,city,slot,city)).fetchall()
-    return [dict(r) for r in rows]
+        db.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, value))
 
-@router.post("/api/ads/{ad_id}/impression")
-def ad_impression(ad_id: int):
-    return _count_event(ad_id, "impression")
 
-@router.get("/api/ads/{ad_id}/click")
-def ad_click(ad_id: int):
+def network_client() -> str:
+    """معرّف شبكة الإعلانات (AdSense) — من الإعدادات أو البيئة."""
+    return get_setting("adsense_client", config.ADSENSE_CLIENT)
+
+
+# ---------- المعلنون ----------
+def add_advertiser(name, company="", email="", phone="", notes="") -> int:
+    init_db()
     with _db() as db:
-        row=db.execute("SELECT target_url FROM ads WHERE id=? AND status='active' AND starts_at<=? AND ends_at>=?",(ad_id,datetime.now(timezone.utc).isoformat(),datetime.now(timezone.utc).isoformat())).fetchone()
-        if not row: raise HTTPException(404, "الإعلان غير متاح")
-        db.execute("UPDATE ads SET clicks=clicks+1 WHERE id=?",(ad_id,))
-    return RedirectResponse(row["target_url"], status_code=302)
+        cur = db.execute(
+            "INSERT INTO advertisers (name,company,email,phone,notes,created) VALUES (?,?,?,?,?,?)",
+            (name, company, email, phone, notes, _now()),
+        )
+        return cur.lastrowid
 
-def _count_event(ad_id: int, event: str):
-    if event not in {"impression", "click"}:
-        raise HTTPException(404, "حدث غير معروف")
-    col = "impressions" if event == "impression" else "clicks"
+
+def list_advertisers() -> list[dict]:
+    init_db()
     with _db() as db:
-        cur = db.execute(f"UPDATE ads SET {col}={col}+1 WHERE id=? AND status='active'", (ad_id,))
-        if not cur.rowcount:
-            raise HTTPException(404, "الإعلان غير موجود")
-    return {"ok": True}
+        rows = db.execute("SELECT * FROM advertisers ORDER BY id DESC").fetchall()
+    cols = ["id", "name", "company", "email", "phone", "notes", "created"]
+    return [dict(zip(cols, r)) for r in rows]
 
-@router.get("/admin/ads")
-def admin_page():
-    return FileResponse(Path(__file__).parent / "static" / "ads-admin.html")
 
-@router.get("/api/admin/ads/requests")
-def admin_requests(x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
+# ---------- الحملات ----------
+def create_campaign(data: dict) -> int:
+    init_db()
     with _db() as db:
-        return [dict(r) for r in db.execute("SELECT * FROM requests ORDER BY id DESC").fetchall()]
+        cur = db.execute(
+            """INSERT INTO campaigns
+               (advertiser_id,name,placement,format,start_date,end_date,status,priority,
+                pricing,rate,budget,daily_cap,target_url,created)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                data.get("advertiser_id"), data["name"], data["placement"],
+                data.get("format", "image"), data.get("start_date"), data.get("end_date"),
+                data.get("status", "active"), int(data.get("priority", 5)),
+                data.get("pricing", "cpm"), float(data.get("rate", 0)),
+                float(data.get("budget", 0)), int(data.get("daily_cap", 0)),
+                data.get("target_url", ""), _now(),
+            ),
+        )
+        return cur.lastrowid
 
-@router.post("/api/admin/ads/requests/{request_id}/status")
-def admin_request_status(request_id: int, body: StatusBody, x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
-    if body.status not in {"pending", "contacted", "rejected", "approved"}:
-        raise HTTPException(422, "حالة غير صحيحة")
-    with _db() as db:
-        cur = db.execute("UPDATE requests SET status=? WHERE id=?", (body.status,request_id))
-        if not cur.rowcount: raise HTTPException(404, "الطلب غير موجود")
-    return {"ok": True}
 
-@router.get("/api/admin/ads")
-def admin_ads(x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
+def update_campaign(cid: int, data: dict) -> bool:
+    init_db()
+    fields = ["advertiser_id", "name", "placement", "format", "start_date", "end_date",
+              "status", "priority", "pricing", "rate", "budget", "daily_cap", "target_url"]
+    sets, vals = [], []
+    for f in fields:
+        if f in data:
+            sets.append(f"{f}=?")
+            vals.append(data[f])
+    if not sets:
+        return False
+    vals.append(cid)
     with _db() as db:
-        return [dict(r) for r in db.execute("SELECT * FROM ads ORDER BY id DESC").fetchall()]
+        db.execute(f"UPDATE campaigns SET {','.join(sets)} WHERE id=?", vals)
+    return True
 
-@router.post("/api/admin/ads")
-def create_ad(body: AdCreate, x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
-    if body.slot not in {"home_top","map_top","city_top"}: raise HTTPException(422,"مساحة غير صحيحة")
-    if not _valid_url(body.target_url, True) or not _valid_url(body.image_url):
-        raise HTTPException(422,"يجب استخدام روابط HTTPS")
-    try:
-        start=datetime.fromisoformat(body.starts_at.replace("Z","+00:00")).astimezone(timezone.utc).isoformat()
-        end=datetime.fromisoformat(body.ends_at.replace("Z","+00:00")).astimezone(timezone.utc).isoformat()
-        if end <= start: raise ValueError()
-    except ValueError: raise HTTPException(422,"تحقق من تاريخ البداية والنهاية")
-    with _db() as db:
-        cur=db.execute("""INSERT INTO ads(title,image_url,target_url,slot,city,starts_at,ends_at,status,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?)""",(body.title.strip(),body.image_url.strip(),body.target_url.strip(),
-        body.slot,body.city.strip(),start,end,body.status,datetime.now(timezone.utc).isoformat()))
-        aid=cur.lastrowid
-    return {"ok":True,"id":aid}
 
-@router.post("/api/admin/ads/{ad_id}/status")
-def admin_ad_status(ad_id: int, body: StatusBody, x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
-    if body.status not in {"active","paused","ended"}: raise HTTPException(422,"حالة غير صحيحة")
+def delete_campaign(cid: int) -> None:
+    init_db()
     with _db() as db:
-        cur=db.execute("UPDATE ads SET status=? WHERE id=?",(body.status,ad_id))
-        if not cur.rowcount: raise HTTPException(404,"الإعلان غير موجود")
-    return {"ok":True}
+        db.execute("DELETE FROM creatives WHERE campaign_id=?", (cid,))
+        db.execute("DELETE FROM campaigns WHERE id=?", (cid,))
 
-@router.get("/api/admin/ads/backup")
-def backup_ads(x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
-    with _db() as db:
-        requests=[dict(r) for r in db.execute("SELECT * FROM requests").fetchall()]
-        ads=[dict(r) for r in db.execute("SELECT * FROM ads").fetchall()]
-    return {"version":1,"exported_at":datetime.now(timezone.utc).isoformat(),"requests":requests,"ads":ads}
 
-@router.post("/api/admin/ads/restore")
-def restore_ads(body: RestoreBody, x_admin_password: str = Header(default="")):
-    _admin(x_admin_password)
-    data=body.data
-    if data.get("version") != 1 or not isinstance(data.get("requests"),list) or not isinstance(data.get("ads"),list):
-        raise HTTPException(422,"ملف النسخة الاحتياطية غير صالح")
+def list_campaigns() -> list[dict]:
+    init_db()
     with _db() as db:
-        db.execute("DELETE FROM requests"); db.execute("DELETE FROM ads")
-        for r in data["requests"]:
-            db.execute("""INSERT INTO requests(id,company,contact,phone,email,city,slot,duration,website,message,created_at,status)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",tuple(r.get(k) for k in ("id","company","contact","phone","email","city","slot","duration","website","message","created_at","status")))
-        for a in data["ads"]:
-            db.execute("""INSERT INTO ads(id,title,image_url,target_url,slot,city,starts_at,ends_at,status,impressions,clicks,created_at)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",tuple(a.get(k) for k in ("id","title","image_url","target_url","slot","city","starts_at","ends_at","status","impressions","clicks","created_at")))
-    return {"ok":True,"requests":len(data["requests"]),"ads":len(data["ads"])}
+        cols = [d[0] for d in db.execute("SELECT * FROM campaigns LIMIT 0").description]
+        rows = db.execute(
+            """SELECT c.*, a.name AS advertiser_name,
+                      (SELECT COUNT(*) FROM impressions i WHERE i.campaign_id=c.id) AS impressions,
+                      (SELECT COUNT(*) FROM clicks k WHERE k.campaign_id=c.id) AS clicks
+               FROM campaigns c LEFT JOIN advertisers a ON a.id=c.advertiser_id
+               ORDER BY c.id DESC"""
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(zip(cols, r[:len(cols)]))
+        d["advertiser_name"] = r[len(cols)]
+        d["impressions"] = r[len(cols) + 1]
+        d["clicks"] = r[len(cols) + 2]
+        d["ctr"] = round(100 * d["clicks"] / d["impressions"], 2) if d["impressions"] else 0.0
+        d["revenue"] = campaign_revenue(d)
+        out.append(d)
+    return out
+
+
+def get_campaign(cid: int) -> dict | None:
+    init_db()
+    with _db() as db:
+        cols = [d[0] for d in db.execute("SELECT * FROM campaigns LIMIT 0").description]
+        row = db.execute("SELECT * FROM campaigns WHERE id=?", (cid,)).fetchone()
+    return dict(zip(cols, row)) if row else None
+
+
+# ---------- الإبداعات ----------
+def add_creative(campaign_id: int, data: dict) -> int:
+    init_db()
+    with _db() as db:
+        cur = db.execute(
+            """INSERT INTO creatives
+               (campaign_id,kind,image_url,width,height,title,body,cta,target_url,active)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                campaign_id, data.get("kind", "image"), data.get("image_url", ""),
+                int(data.get("width", 0)), int(data.get("height", 0)),
+                data.get("title", ""), data.get("body", ""), data.get("cta", ""),
+                data.get("target_url", ""), 1 if data.get("active", True) else 0,
+            ),
+        )
+        return cur.lastrowid
+
+
+def list_creatives(campaign_id: int) -> list[dict]:
+    init_db()
+    with _db() as db:
+        cols = [d[0] for d in db.execute("SELECT * FROM creatives LIMIT 0").description]
+        rows = db.execute("SELECT * FROM creatives WHERE campaign_id=?", (campaign_id,)).fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+# ---------- التقديم (Serving) ----------
+def _active_campaigns(placement: str, today: str) -> list[dict]:
+    init_db()
+    with _db() as db:
+        cols = [d[0] for d in db.execute("SELECT * FROM campaigns LIMIT 0").description]
+        rows = db.execute(
+            """SELECT * FROM campaigns
+               WHERE placement=? AND status='active'
+                 AND (start_date IS NULL OR start_date='' OR start_date<=?)
+                 AND (end_date IS NULL OR end_date='' OR end_date>=?)
+               ORDER BY priority DESC, id ASC""",
+            (placement, today, today),
+        ).fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def _impressions_today(campaign_id: int, today: str) -> int:
+    with _db() as db:
+        return db.execute(
+            "SELECT COUNT(*) FROM impressions WHERE campaign_id=? AND day=?", (campaign_id, today)
+        ).fetchone()[0]
+
+
+def serve(placement: str, page: str = "") -> dict | None:
+    """
+    يختار إعلاناً للمكان المطلوب. يعيد dict أو None.
+    - يحترم الجدولة (بداية/نهاية) والحالة والحد اليومي.
+    - يوزّع بالتناوب بين الحملات المؤهلة (rotation) حسب الأولوية.
+    - إن لم توجد حملة، يعيد إعلان البيت (self-promo) حتى لا يبقى المكان فارغاً.
+    """
+    if placement not in PLACEMENTS:
+        return None
+    init_db()
+    today = _today()
+    cands = _active_campaigns(placement, today)
+    eligible = []
+    for c in cands:
+        if c["daily_cap"] and _impressions_today(c["id"], today) >= c["daily_cap"]:
+            continue
+        creatives = [x for x in list_creatives(c["id"]) if x["active"]]
+        if creatives:
+            eligible.append((c, creatives))
+    if not eligible:
+        return house_ad(placement)
+
+    # توزيع بالتناوب: نختار الحملة الأقل ظهوراً اليوم (عدالة بين المعلنين)
+    eligible.sort(key=lambda x: (_impressions_today(x[0]["id"], today), -x[0]["priority"]))
+    c, creatives = eligible[0]
+    cr = creatives[secrets.randbelow(len(creatives))]
+    return {
+        "campaign_id": c["id"],
+        "creative_id": cr["id"],
+        "placement": placement,
+        "kind": cr["kind"],
+        "image_url": cr["image_url"],
+        "width": cr["width"] or PLACEMENTS[placement]["w"],
+        "height": cr["height"] or PLACEMENTS[placement]["h"],
+        "title": cr["title"],
+        "body": cr["body"],
+        "cta": cr["cta"] or "اعرف المزيد",
+        "target_url": cr["target_url"] or c["target_url"],
+        "sponsored": True,
+        "label": "إعلان",
+    }
+
+
+def house_ad(placement: str) -> dict:
+    """إعلان البيت: دعوة للإعلان معنا. يظهر حين لا توجد حملة نشطة."""
+    return {
+        "campaign_id": 0,
+        "creative_id": 0,
+        "placement": placement,
+        "kind": "house",
+        "image_url": "",
+        "width": PLACEMENTS[placement]["w"],
+        "height": PLACEMENTS[placement]["h"],
+        "title": "أعلن معنا",
+        "body": "اعرض علامتك أمام زوار طقس بلاد الشام في الأردن وفلسطين ولبنان وسوريا.",
+        "cta": "اطّلع على الأسعار",
+        "target_url": "/advertise",
+        "sponsored": False,
+        "label": "إعلان",
+    }
+
+
+# ---------- التتبع ----------
+def record_impression(campaign_id: int, creative_id: int, placement: str, page: str = "") -> None:
+    if not campaign_id:
+        return
+    init_db()
+    with _db() as db:
+        db.execute(
+            "INSERT INTO impressions (campaign_id,creative_id,placement,ts,day,page) VALUES (?,?,?,?,?,?)",
+            (campaign_id, creative_id, placement, _now(), _today(), page[:200]),
+        )
+
+
+def record_click(campaign_id: int, creative_id: int, placement: str, page: str = "") -> None:
+    if not campaign_id:
+        return
+    init_db()
+    with _db() as db:
+        db.execute(
+            "INSERT INTO clicks (campaign_id,creative_id,placement,ts,day,page) VALUES (?,?,?,?,?,?)",
+            (campaign_id, creative_id, placement, _now(), _today(), page[:200]),
+        )
+
+
+# ---------- الإيراد ----------
+def campaign_revenue(c: dict, days: int | None = None) -> float:
+    """
+    إيراد الحملة بالدينار الأردني.
+    cpm: ظهور/1000 × السعر. cpc: نقرات × السعر. flat: السعر موزّعاً على أيام الحملة.
+    """
+    init_db()
+    pricing = (c.get("pricing") or "cpm").lower()
+    rate = float(c.get("rate") or 0)
+    with _db() as db:
+        if days:
+            since = (date.today() - timedelta(days=days)).isoformat()
+            imp = db.execute(
+                "SELECT COUNT(*) FROM impressions WHERE campaign_id=? AND day>=?",
+                (c["id"], since)).fetchone()[0]
+            clk = db.execute(
+                "SELECT COUNT(*) FROM clicks WHERE campaign_id=? AND day>=?",
+                (c["id"], since)).fetchone()[0]
+        else:
+            imp = db.execute("SELECT COUNT(*) FROM impressions WHERE campaign_id=?", (c["id"],)).fetchone()[0]
+            clk = db.execute("SELECT COUNT(*) FROM clicks WHERE campaign_id=?", (c["id"],)).fetchone()[0]
+    if pricing == "cpc":
+        return round(clk * rate, 2)
+    if pricing == "flat":
+        return round(rate, 2)
+    return round(imp / 1000.0 * rate, 2)
+
+
+def report(days: int = 30) -> dict:
+    """تقرير إيرادات: إجمالي، يومي، شهري، ولكل حملة."""
+    init_db()
+    since = (date.today() - timedelta(days=days)).isoformat()
+    with _db() as db:
+        daily_imp = dict(db.execute(
+            "SELECT day, COUNT(*) FROM impressions WHERE day>=? GROUP BY day", (since,)).fetchall())
+        daily_clk = dict(db.execute(
+            "SELECT day, COUNT(*) FROM clicks WHERE day>=? GROUP BY day", (since,)).fetchall())
+        monthly_imp = dict(db.execute(
+            "SELECT substr(day,1,7), COUNT(*) FROM impressions GROUP BY substr(day,1,7)").fetchall())
+        monthly_clk = dict(db.execute(
+            "SELECT substr(day,1,7), COUNT(*) FROM clicks GROUP BY substr(day,1,7)").fetchall())
+
+    campaigns = list_campaigns()
+    total_rev = round(sum(c["revenue"] for c in campaigns), 2)
+    total_imp = sum(c["impressions"] for c in campaigns)
+    total_clk = sum(c["clicks"] for c in campaigns)
+
+    days_list = []
+    for i in range(days, -1, -1):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        imp = daily_imp.get(d, 0)
+        clk = daily_clk.get(d, 0)
+        days_list.append({"day": d, "impressions": imp, "clicks": clk,
+                          "ctr": round(100 * clk / imp, 2) if imp else 0.0})
+
+    months = sorted(set(monthly_imp) | set(monthly_clk))
+    months_list = [{"month": m, "impressions": monthly_imp.get(m, 0),
+                    "clicks": monthly_clk.get(m, 0),
+                    "ctr": round(100 * monthly_clk.get(m, 0) / monthly_imp.get(m, 1), 2)
+                    if monthly_imp.get(m) else 0.0} for m in months]
+
+    return {
+        "days": days,
+        "totals": {
+            "impressions": total_imp, "clicks": total_clk,
+            "ctr": round(100 * total_clk / total_imp, 2) if total_imp else 0.0,
+            "revenue_jod": total_rev,
+        },
+        "daily": days_list,
+        "monthly": months_list,
+        "campaigns": campaigns,
+        "generated_at": _now(),
+    }
+
+
+def report_csv(days: int = 30) -> str:
+    """تقرير الإيراد اليومي بصيغة CSV (قابل للتصدير إلى Excel)."""
+    r = report(days)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["التاريخ", "الظهور", "النقرات", "نسبة النقر %"])
+    for d in r["daily"]:
+        w.writerow([d["day"], d["impressions"], d["clicks"], d["ctr"]])
+    w.writerow([])
+    w.writerow(["الحملة", "المعلن", "المكان", "الظهور", "النقرات", "نسبة النقر %", "الإيراد (د.أ)"])
+    for c in r["campaigns"]:
+        w.writerow([c["name"], c.get("advertiser_name") or "", c["placement"],
+                    c["impressions"], c["clicks"], c["ctr"], c["revenue"]])
+    w.writerow([])
+    w.writerow(["الإجمالي", "", "", r["totals"]["impressions"], r["totals"]["clicks"],
+                r["totals"]["ctr"], r["totals"]["revenue_jod"]])
+    return buf.getvalue()
+
+
+# ---------- العملاء المحتملون (طلبات الإعلان) ----------
+def add_lead(data: dict) -> int:
+    init_db()
+    with _db() as db:
+        cur = db.execute(
+            "INSERT INTO leads (name,email,company,phone,message,budget,status,created) VALUES (?,?,?,?,?,?,?,?)",
+            (data.get("name", ""), data.get("email", ""), data.get("company", ""),
+             data.get("phone", ""), data.get("message", ""), data.get("budget", ""),
+             "new", _now()),
+        )
+        return cur.lastrowid
+
+
+def list_leads() -> list[dict]:
+    init_db()
+    with _db() as db:
+        cols = [d[0] for d in db.execute("SELECT * FROM leads LIMIT 0").description]
+        rows = db.execute("SELECT * FROM leads ORDER BY id DESC").fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+# ---------- ads.txt ----------
+def ads_txt() -> str:
+    """
+    ملف ads.txt: يعلن من يحق له بيع مساحاتنا الإعلانية.
+    يُبنى من معرّف الشبكة (AdSense) ومن أسطر مخصّصة تُضبط من اللوحة.
+    """
+    lines = ["# ads.txt - طقس بلاد الشام / Levant Weather",
+             "# يُدار من لوحة الإعلانات. لا تعدّله يدوياً إن كنت تستخدم اللوحة.", ""]
+    client = network_client()
+    if client:
+        pub = client if client.startswith("pub-") else client.replace("ca-", "")
+        lines.append(f"google.com, {pub}, DIRECT, f08c47fec0942fa0")
+    custom = get_setting("ads_txt_extra", config.ADS_TXT_ENTRIES)
+    if custom:
+        for entry in custom.replace(";", "\n").splitlines():
+            if entry.strip():
+                lines.append(entry.strip())
+    if len(lines) <= 3:
+        lines.append("# لم تُضبط شبكة إعلانات بعد. أضف معرّف AdSense من لوحة الإعلانات.")
+    return "\n".join(lines) + "\n"
+
+
+# ---------- بيانات أولية للعرض ----------
+def seed_demo() -> None:
+    """ينشئ حملات تجريبية حتى تظهر الإعلانات فوراً في المعاينة."""
+    init_db()
+    with _db() as db:
+        if db.execute("SELECT COUNT(*) FROM campaigns").fetchone()[0]:
+            return
+    adv = add_advertiser("شركة الأفق للاتصالات", "Al-Ufuq Telecom", "ads@ufuq.jo", "+962 6 000 0000")
+    today = date.today()
+    c1 = create_campaign({
+        "advertiser_id": adv, "name": "حملة الأفق - الشتاء", "placement": "home_top",
+        "format": "text", "start_date": (today - timedelta(days=5)).isoformat(),
+        "end_date": (today + timedelta(days=60)).isoformat(), "priority": 8,
+        "pricing": "cpm", "rate": 4.5, "budget": 500, "target_url": "https://example.com/ufuq",
+    })
+    add_creative(c1, {"kind": "text", "title": "باقات إنترنت شتوية",
+                      "body": "سرعات أعلى وأسعار أوفر لعملاء الأردن. عرض محدود.",
+                      "cta": "اطلب الآن", "target_url": "https://example.com/ufuq"})
+    c2 = create_campaign({
+        "advertiser_id": adv, "name": "رعاية تنبيهات الطقس", "placement": "alert_sponsor",
+        "format": "sponsor", "start_date": (today - timedelta(days=2)).isoformat(),
+        "end_date": (today + timedelta(days=90)).isoformat(), "priority": 9,
+        "pricing": "flat", "rate": 320, "budget": 320, "target_url": "https://example.com/ufuq",
+    })
+    add_creative(c2, {"kind": "sponsor", "title": "رعاية تنبيهات الطقس",
+                      "body": "تُعرض تنبيهات الطقس برعاية شركة الأفق للاتصالات.",
+                      "cta": "تعرف على الراعي", "target_url": "https://example.com/ufuq"})
+    c3 = create_campaign({
+        "advertiser_id": adv, "name": "حملة الأفق - صفحة المدينة", "placement": "city_mid",
+        "format": "text", "start_date": (today - timedelta(days=1)).isoformat(),
+        "end_date": (today + timedelta(days=45)).isoformat(), "priority": 6,
+        "pricing": "cpc", "rate": 0.25, "budget": 200, "target_url": "https://example.com/ufuq",
+    })
+    add_creative(c3, {"kind": "text", "title": "تأمين سيارات شامل",
+                      "body": "أسعار تنافسية وتغطية في كل محافظات المملكة.",
+                      "cta": "احسب قسطك", "target_url": "https://example.com/ufuq"})

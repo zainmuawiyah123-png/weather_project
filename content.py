@@ -97,16 +97,11 @@ def _rain_sentence(hours: list) -> str:
     first, last, total, count = rw
     word = "خفيفة" if total < 2 else "متوسطة" if total < 10 else "غزيرة"
     amount = "أقل من 1 ملم" if total < 1 else f"نحو {round(total)} ملم"
-    first_date = first["time"][:10]
-    last_date = last["time"][:10]
-    today_date = hours[0]["time"][:10]
     a, b = hour_of(first), hour_of(last)
-    first_day = "غداً " if first_date > today_date else ""
-    last_day = "غداً " if last_date > today_date else ""
-    if count == 1 or (a == b and first_date == last_date):
-        when = f"{first_day}نحو الساعة {hour_label(a)}"
+    if count == 1 or a == b:
+        when = f"نحو الساعة {hour_label(a)}"
     else:
-        when = f"بين الساعة {first_day}{hour_label(a)} و{last_day}{hour_label(b)}"
+        when = f"بين الساعة {hour_label(a)} و{hour_label(b)}"
     return f"أمطار {word} متوقعة {when} بمجموع {amount}."
 
 

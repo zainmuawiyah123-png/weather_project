@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/ads.css">
 <style>
   :root {
     --bg: #e8f1f2; --surface: #ffffff; --ink: #0b2f40; --muted: #4b6874; --line: #d3e1e3; --cold: #0b6e99;
@@ -61,6 +62,8 @@
 <div class="wrap" id="tableWrap"><p class="muted" style="padding:14px">جارٍ التحميل…</p></div>
 <p class="muted" id="note"></p>
 
+<div class="ad-slot" data-placement="home_bottom"></div>
+
 <h2>كيف نحسب هذه الأرقام</h2>
 <ul class="muted">
   <li>القراءات الحقيقية تأتي من تقارير METAR لمطارات المنطقة عبر NOAA Aviation Weather.</li>
@@ -86,7 +89,7 @@ function row(name, station, days, l1, l3, cls = "") {
   const ok = l1 && l1.n > 0;
   const ok3 = l3 && l3.n > 0;
   return `<tr class="${cls}">
-    <td>${esc(name)}${station ? `<br><span class="muted">${esc(station)}</span>` : ""}</td>
+    <td>${esc(name)}${station ? `<br><span class="muted">${esc(station)}</span>` : `<br><span class="muted">مقارنة إقليمية</span>`}</td>
     <td>${cell(days)}</td>
     <td>${ok ? "±" + l1.mae_max + "°" : "–"}</td>
     <td>${ok ? "±" + l1.mae_min + "°" : "–"}</td>
@@ -122,5 +125,6 @@ function row(name, station, days, l1, l3, cls = "") {
   }
 })();
 </script>
+<script src="/static/ads.js"></script>
 </body>
 </html>

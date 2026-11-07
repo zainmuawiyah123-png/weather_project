@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/ads.css">
 <style>
   :root {
     --bg: #e8f1f2;
@@ -125,11 +126,6 @@
   .acc .tile span { font-size: .78rem; color: var(--muted); }
   .acc .note { grid-column: 1 / -1; }
   footer a { color: var(--cold); }
-
-  .ad-slot { display:block; margin:14px 0; padding:16px; text-align:center; border:1px dashed var(--cold); border-radius:14px; background:var(--surface); color:var(--muted); text-decoration:none; }
-  .ad-slot strong { display:block; color:var(--ink); font-size:.95rem; }
-  .ad-slot span { display:block; font-size:.78rem; margin-top:3px; }
-
   .box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
   .box p { margin: 0; }
   .box .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -145,7 +141,7 @@
 <header>
   <div class="brand">
     <img src="/static/logo.svg" alt="" width="48" height="48">
-    <div><h1>طقس بلاد الشام</h1><small>الأردن أولاً، مع تغطية مدن بلاد الشام</small></div>
+    <div><h1>طقس بلاد الشام</h1><small>توقع واحد من ثلاثة نماذج، لأربعة بلدان</small></div>
   </div>
   <div class="tools">
     <a class="navlink" href="/map">الخريطة</a>
@@ -153,14 +149,9 @@
   </div>
 </header>
 
-<a class="ad-slot" href="/advertise" aria-label="احجز مساحة إعلانية">
-  <strong>مساحة إعلانية رئيسية متاحة للرعاية والإعلان</strong>
-  <span>كن أمام زوار طقس بلاد الشام — التفاصيل عبر صفحة أعلن معنا</span>
-</a>
-
 <main id="view" aria-live="polite"><p class="hero">جارٍ التحميل…</p></main>
 
-<footer id="foot"><p><a href="/advertise">أعلن معنا · احجز مساحة إعلانية</a></p></footer>
+<footer id="foot"></footer>
 
 <script>
 const fmtDay = d => new Date(d + "T12:00").toLocaleDateString("ar-JO-u-nu-latn", { weekday: "long" });
@@ -260,6 +251,7 @@ function render(w) {
     ${alerts
       ? `<section class="alerts" aria-label="التنبيهات">${alerts}</section>`
       : `<p class="muted">لا توجد تنبيهات خلال الـ 48 ساعة القادمة.</p>`}
+    <div class="ad-slot" data-placement="home_top"></div>
     ${w.summary ? `<section class="box" aria-label="ملخص اليوم">
       <p>${esc(w.summary)}</p>
       <div class="row">
@@ -268,6 +260,7 @@ function render(w) {
       </div>
       <div class="muted" id="shareMsg" role="status"></div>
     </section>` : ""}
+    <div class="ad-slot" data-placement="home_mid"></div>
     ${(w.tips || []).length ? `<section class="tips" aria-label="ماذا أفعل اليوم">${w.tips.map(t =>
       `<div class="box"><small>${esc(t.label)}</small>${esc(t.text)}</div>`).join("")}</section>` : ""}
     <section class="push" aria-label="الإشعارات">
@@ -285,13 +278,15 @@ function render(w) {
     </section>
     <h2>الساعات القادمة</h2>
     <div class="hours">${hours}</div>
-    <h2>توقعات الأيام الثلاثة القادمة</h2>
+    <h2>الأيام السبعة القادمة</h2>
     <div class="days">${days}</div>
+    <div class="ad-slot" data-placement="home_bottom"></div>
     <h2>دقة توقعاتنا</h2>
     <div class="acc" id="acc"><p class="muted note">جارٍ حساب الدقة…</p></div>`;
 
   bindPush(w.city);
   loadAccuracy(w.city);
+  if (window.lwAds) window.lwAds.loadAll();
   const sb = document.getElementById("shareBtn");
   if (sb) sb.onclick = async () => {
     const m = document.getElementById("shareMsg");
@@ -302,7 +297,7 @@ function render(w) {
   };
 
   foot.innerHTML = `
-    <p>مصدر البيانات: ${esc(w.source)}. تعتمد درجة الثقة على مقارنة أكثر من مصدر؛ وعند توفر مصدر واحد فقط تظهر الثقة «غير متوفرة».
+    <p>المصدر: ${esc(w.source)}. التوقع متوسط ثلاثة نماذج، و«الثقة» وعدد النماذج المتفقة يعبّران عن مدى اتفاقها.
     آخر تحديث ${esc(fmtAgo(w.updated_at))}${w.stale ? " (بيانات محفوظة، تعذّر التحديث)" : ""}.</p>
     <p>هذه التنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية من دوائر الأرصاد الجوية والدفاع المدني.</p>
     <p><a href="/accuracy">لوحة الدقة الكاملة وطريقة حسابها</a></p>`;
@@ -388,5 +383,6 @@ loadCities().then(loadWeather).catch(() => {
 });
 </script>
 <script src="/static/share.js"></script>
+<script src="/static/ads.js"></script>
 </body>
 </html>

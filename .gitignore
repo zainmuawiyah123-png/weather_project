@@ -1,20 +1,43 @@
-# Python cache files
-__pycache__/
-*.py[cod]
+# ---------- بيانات محلية (لا تُرفع) ----------
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 
-# Environment and secret files
+# ---------- مفاتيح وأسرار ----------
+vapid_private.pem
+admin_token.txt
 .env
 .env.*
-vapid_private.pem
+!.env.example
 
-# Local databases (new/untracked files only)
-*.db
-
-# Virtual environments
-venv/
+# ---------- بايثون ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
 .venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Editor and system files
+# ---------- محرّرات وأنظمة ----------
 .vscode/
+.idea/
+*.swp
 .DS_Store
 Thumbs.db
+
+# ---------- سجلات ----------
+*.log
+logs/
