@@ -1,0 +1,20 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Environment and secret files
+.env
+.env.*
+vapid_private.pem
+
+# Local databases
+*.db
+
+# Virtual environments
+venv/
+.venv/
+
+# Editor and system files
+.vscode/
+.DS_Store
+Thumbs.db
