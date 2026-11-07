@@ -11,7 +11,7 @@ async def fetch_forecast(lat: float, lon: float, api_key: str) -> dict:
     params = {
         "key": api_key,
         "q": f"{lat},{lon}",
-        "days": 7,
+        "days": 3,
         "aqi": "no",
         "alerts": "no",
     }
