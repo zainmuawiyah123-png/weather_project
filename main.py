@@ -38,6 +38,7 @@ import alerts as alert_engine
 import content
 import pages
 import push
+import weatherapi as weather_api
 
 log = logging.getLogger("levant-weather")
 
@@ -49,6 +50,7 @@ PUSH_EVERY = 30 * 60     # فحص التنبيهات للمشتركين كل 30 
 ACCURACY_EVERY = 6 * 3600  # جلب قراءات المحطات وتسجيل توقعات كل المدن كل 6 ساعات
 
 API_KEY = os.getenv("OPEN_METEO_API_KEY", "").strip()
+WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY", "").strip()
 API_URL = (
     "https://customer-api.open-meteo.com/v1/forecast"
     if API_KEY
@@ -136,10 +138,10 @@ accuracy.init_db(DB_PATH)
 
 
 # ---------- معالجة البيانات ----------
-def combine(block: dict, base: str, i: int):
-    """يجمع قيم المتغير من كل النماذج عند الفهرس i ويعيد (المتوسط، الفارق)."""
+def combine(block: dict, base: str, i: int, models=None):
+    """يجمع قيم المتغير من النماذج المتاحة ويعيد (المتوسط، الفارق)."""
     vals = []
-    for m in MODELS:
+    for m in (models or MODELS):
         series = block.get(f"{base}_{m}")
         if series and i < len(series) and series[i] is not None:
             vals.append(series[i])
@@ -165,6 +167,7 @@ def _r(v, nd=1):
 def build_payload(slug: str, raw: dict) -> dict:
     c = CITIES[slug]
     hourly, daily = raw["hourly"], raw["daily"]
+    models = raw.get("_models", MODELS)
     offset = timedelta(seconds=raw.get("utc_offset_seconds", 0))
     local_now = datetime.now(timezone.utc).replace(tzinfo=None) + offset
     now_key = local_now.strftime("%Y-%m-%dT%H:00")
@@ -173,15 +176,15 @@ def build_payload(slug: str, raw: dict) -> dict:
 
     hours = []
     for i in range(start, min(start + 24, len(times))):
-        t, _ = combine(hourly, "temperature_2m", i)
-        p, _ = combine(hourly, "precipitation", i)
-        w, _ = combine(hourly, "wind_speed_10m", i)
-        g, _ = combine(hourly, "wind_gusts_10m", i)
-        s, _ = combine(hourly, "snowfall", i)
-        cl, _ = combine(hourly, "cloud_cover", i)
-        hu, _ = combine(hourly, "relative_humidity_2m", i)
-        fe, _ = combine(hourly, "apparent_temperature", i)
-        uv, _ = combine(hourly, "uv_index", i)
+        t, _ = combine(hourly, "temperature_2m", i, models)
+        p, _ = combine(hourly, "precipitation", i, models)
+        w, _ = combine(hourly, "wind_speed_10m", i, models)
+        g, _ = combine(hourly, "wind_gusts_10m", i, models)
+        s, _ = combine(hourly, "snowfall", i, models)
+        cl, _ = combine(hourly, "cloud_cover", i, models)
+        hu, _ = combine(hourly, "relative_humidity_2m", i, models)
+        fe, _ = combine(hourly, "apparent_temperature", i, models)
+        uv, _ = combine(hourly, "uv_index", i, models)
         hours.append(
             {
                 "time": times[i],
@@ -199,9 +202,9 @@ def build_payload(slug: str, raw: dict) -> dict:
 
     days = []
     for i, date in enumerate(daily["time"]):
-        mx, mx_spread = combine(daily, "temperature_2m_max", i)
-        mn, mn_spread = combine(daily, "temperature_2m_min", i)
-        pr, _ = combine(daily, "precipitation_sum", i)
+        mx, mx_spread = combine(daily, "temperature_2m_max", i, models)
+        mn, mn_spread = combine(daily, "temperature_2m_min", i, models)
+        pr, _ = combine(daily, "precipitation_sum", i, models)
         if mx is None or mn is None:
             continue
         spreads = [s for s in (mx_spread, mn_spread) if s is not None]
@@ -215,7 +218,7 @@ def build_payload(slug: str, raw: dict) -> dict:
             }
         )
 
-    alerts = alert_engine.evaluate(hourly, times, start, MODELS, dry=c["dry"])
+    alerts = alert_engine.evaluate(hourly, times, start, models, dry=c["dry"])
     log_forecast(slug, local_now.strftime("%Y-%m-%d"), days)
 
     payload = {
@@ -227,9 +230,9 @@ def build_payload(slug: str, raw: dict) -> dict:
         "alerts": alerts,
         "level": max((a["level"] for a in alerts), default=0),
         "local_hour": local_now.hour,
-        "models": MODELS,
+        "models": models,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source": "Open-Meteo (ECMWF + GFS + ICON)",
+        "source": raw.get("_source", "Open-Meteo (ECMWF + GFS + ICON)"),
     }
     payload["condition"] = content.condition(hours)
     payload["summary"] = content.build_summary(payload)
@@ -239,6 +242,8 @@ def build_payload(slug: str, raw: dict) -> dict:
 
 # ---------- الجلب من Open-Meteo ----------
 async def fetch_forecast(lat: float, lon: float) -> dict:
+    if WEATHERAPI_KEY:
+        return await weather_api.fetch_forecast(lat, lon, WEATHERAPI_KEY)
     base = {
         "latitude": lat,
         "longitude": lon,
