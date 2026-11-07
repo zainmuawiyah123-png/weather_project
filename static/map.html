@@ -149,12 +149,12 @@ function draw() {
   const layer = LAYERS[layerKey];
   const url = tileUrl(layer.path, date);
   if (!overlay) {
-    overlay = L.tileLayer(url, { opacity: 0.72, maxZoom: 10, attribution: "WeatherAPI.com" }).addTo(map);
+    overlay = L.tileLayer(url, { opacity: 1, maxZoom: 10, updateWhenIdle: true, keepBuffer: 3, attribution: "WeatherAPI.com" }).addTo(map);
   } else {
     overlay.setUrl(url);
   }
   updateTimeLabel(date);
-  statusEl.textContent = "توقعات WeatherAPI · " + layer.label + " · التحديث كل ساعة";
+  statusEl.textContent = "توقعات WeatherAPI · " + layer.label + " · ألوان الطبقة بوضوح كامل · تحديث كل ساعة";
 }
 function buildLegend() {
   legend.textContent = LAYERS[layerKey].unit + " · خرائط توقعات WeatherAPI";
