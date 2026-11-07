@@ -39,6 +39,7 @@ import content
 import pages
 import push
 import weatherapi as weather_api
+import ads
 
 log = logging.getLogger("levant-weather")
 
@@ -341,6 +342,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="طقس بلاد الشام", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.include_router(ads.router)
 
 
 # ---------- المسارات ----------

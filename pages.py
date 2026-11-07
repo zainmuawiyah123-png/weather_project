@@ -74,6 +74,7 @@ tr:last-child td{border-bottom:0}
 .muted{color:var(--muted);font-size:.85rem}
 .cities{display:flex;flex-wrap:wrap;gap:8px}
 .cities a{color:var(--cold);text-decoration:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:.9rem}
+ .ad-label{display:inline-block;font-size:.72rem;background:#e8b100;color:#2b2000;padding:1px 8px;border-radius:20px;margin-bottom:5px}.ad-creative{display:block;color:inherit;text-decoration:none}.ad-creative img{max-width:100%;max-height:110px;object-fit:contain}
 footer{margin-top:30px;color:var(--muted);font-size:.8rem}footer p{margin:6px 0}footer a{color:var(--cold)}
 .ad-slot{display:block;margin:14px 0;padding:16px;text-align:center;border:1px dashed var(--cold);border-radius:14px;background:var(--surface);color:var(--muted);text-decoration:none}.ad-slot strong{display:block;color:var(--ink);font-size:.95rem}.ad-slot span{display:block;font-size:.78rem;margin-top:3px}
 """
@@ -159,7 +160,7 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
 
 <main>
 <h1>طقس {e(name)} اليوم</h1>
-<a class="ad-slot" href="/advertise"><strong>مساحة إعلانية متاحة في {e(name)}</strong><span>رعاية محلية تصل إلى المهتمين بطقس المدينة</span></a>
+<div id="city-ad" class="ad-slot"><a href="/advertise"><strong>مساحة إعلانية متاحة في {e(name)}</strong><span>رعاية محلية تصل إلى المهتمين بطقس المدينة</span></a></div>
 <section class="hero" style="background:{gradient(w)}">
   <div>{e(name)}، {e(c["country"])}</div>
   <div class="temp">{temp}°</div>
@@ -205,6 +206,7 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
 </footer>
 
 <script src="/static/share.js"></script>
+<script src="/static/ads.js"></script><script>window.loadWeatherAd && window.loadWeatherAd("city-ad","city_top","{e(slug)}");</script>
 <script>
 window.__W = {data};
 document.getElementById("shareBtn").addEventListener("click", async function () {{

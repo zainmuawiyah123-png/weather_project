@@ -67,6 +67,7 @@
   .pop-alert { margin-top: 6px; padding-inline-start: 8px; border-inline-start: 4px solid var(--y); }
   .pop-alert.lvl2 { border-color: var(--o); }
   .pop-alert.lvl3 { border-color: var(--r); }
+  .map-ad{margin:14px 0;padding:12px;text-align:center;border:1px dashed var(--cold);border-radius:12px;background:var(--surface)}.map-ad a{color:var(--cold);font-weight:700;text-decoration:none}.ad-label{display:inline-block;font-size:.72rem;background:#e8b100;color:#2b2000;padding:1px 8px;border-radius:20px;margin-bottom:5px}.ad-creative img{max-width:100%;max-height:110px;object-fit:contain}
 </style>
 </head>
 <body>
@@ -78,6 +79,7 @@
   <a class="navlink" href="/">الصفحة الرئيسية</a>
 </header>
 
+<div id="map-ad" class="map-ad" aria-live="polite"><a href="/advertise">مساحة إعلانية متاحة على خريطة الطقس — أعلن معنا</a></div>
 <div class="controls" role="group" aria-label="طبقة الخريطة" id="layerBtns"></div>
 <div class="timebar">
   <button id="playBtn" aria-label="تشغيل الشريط الزمني">تشغيل</button>
@@ -244,5 +246,6 @@ async function loadCities() {
 
 loadCities();
 </script>
+<script src="/static/ads.js"></script><script>window.loadWeatherAd && window.loadWeatherAd("map-ad","map_top");</script>
 </body>
 </html>
