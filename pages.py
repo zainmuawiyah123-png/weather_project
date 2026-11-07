@@ -75,6 +75,7 @@ tr:last-child td{border-bottom:0}
 .cities{display:flex;flex-wrap:wrap;gap:8px}
 .cities a{color:var(--cold);text-decoration:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:.9rem}
 footer{margin-top:30px;color:var(--muted);font-size:.8rem}footer p{margin:6px 0}footer a{color:var(--cold)}
+.ad-slot{display:block;margin:14px 0;padding:16px;text-align:center;border:1px dashed var(--cold);border-radius:14px;background:var(--surface);color:var(--muted);text-decoration:none}.ad-slot strong{display:block;color:var(--ink);font-size:.95rem}.ad-slot span{display:block;font-size:.78rem;margin-top:3px}
 """
 
 

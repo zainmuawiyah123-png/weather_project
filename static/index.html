@@ -125,6 +125,11 @@
   .acc .tile span { font-size: .78rem; color: var(--muted); }
   .acc .note { grid-column: 1 / -1; }
   footer a { color: var(--cold); }
+
+  .ad-slot { display:block; margin:14px 0; padding:16px; text-align:center; border:1px dashed var(--cold); border-radius:14px; background:var(--surface); color:var(--muted); text-decoration:none; }
+  .ad-slot strong { display:block; color:var(--ink); font-size:.95rem; }
+  .ad-slot span { display:block; font-size:.78rem; margin-top:3px; }
+
   .box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
   .box p { margin: 0; }
   .box .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -148,9 +153,14 @@
   </div>
 </header>
 
+<a class="ad-slot" href="/advertise" aria-label="احجز مساحة إعلانية">
+  <strong>مساحة إعلانية رئيسية متاحة للرعاية والإعلان</strong>
+  <span>كن أمام زوار طقس بلاد الشام — التفاصيل عبر صفحة أعلن معنا</span>
+</a>
+
 <main id="view" aria-live="polite"><p class="hero">جارٍ التحميل…</p></main>
 
-<footer id="foot"></footer>
+<footer id="foot"><p><a href="/advertise">أعلن معنا · احجز مساحة إعلانية</a></p></footer>
 
 <script>
 const fmtDay = d => new Date(d + "T12:00").toLocaleDateString("ar-JO-u-nu-latn", { weekday: "long" });
