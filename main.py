@@ -135,9 +135,9 @@ def log_forecast(city: str, issued_date: str, days: list[dict]) -> None:
 
 
 # ---------- معالجة البيانات ----------
-def combine(block: dict, base: str, i: int):
+def combine(block: dict, base: str, i: int, models=None):
     vals = []
-    for m in MODELS:
+    for m in (models or MODELS):
         series = block.get(f"{base}_{m}")
         if series and i < len(series) and series[i] is not None:
             vals.append(series[i])
@@ -163,6 +163,7 @@ def _r(v, nd=1):
 def build_payload(slug: str, raw: dict) -> dict:
     c = CITIES[slug]
     hourly, daily = raw["hourly"], raw["daily"]
+    models = raw.get("models", MODELS)
     offset = timedelta(seconds=raw.get("utc_offset_seconds", 0))
     local_now = datetime.now(timezone.utc).replace(tzinfo=None) + offset
     now_key = local_now.strftime("%Y-%m-%dT%H:00")
@@ -171,15 +172,15 @@ def build_payload(slug: str, raw: dict) -> dict:
 
     hours = []
     for i in range(start, min(start + 24, len(times))):
-        t, _ = combine(hourly, "temperature_2m", i)
-        p, _ = combine(hourly, "precipitation", i)
-        w, _ = combine(hourly, "wind_speed_10m", i)
-        g, _ = combine(hourly, "wind_gusts_10m", i)
-        s, _ = combine(hourly, "snowfall", i)
-        cl, _ = combine(hourly, "cloud_cover", i)
-        hu, _ = combine(hourly, "relative_humidity_2m", i)
-        fe, _ = combine(hourly, "apparent_temperature", i)
-        uv, _ = combine(hourly, "uv_index", i)
+        t, _ = combine(hourly, "temperature_2m", i, models)
+        p, _ = combine(hourly, "precipitation", i, models)
+        w, _ = combine(hourly, "wind_speed_10m", i, models)
+        g, _ = combine(hourly, "wind_gusts_10m", i, models)
+        s, _ = combine(hourly, "snowfall", i, models)
+        cl, _ = combine(hourly, "cloud_cover", i, models)
+        hu, _ = combine(hourly, "relative_humidity_2m", i, models)
+        fe, _ = combine(hourly, "apparent_temperature", i, models)
+        uv, _ = combine(hourly, "uv_index", i, models)
         hours.append({
             "time": times[i], "temp": _r(t), "precip": _r(p),
             "wind": None if w is None else round(w), "gust": None if g is None else round(g),
@@ -189,9 +190,9 @@ def build_payload(slug: str, raw: dict) -> dict:
 
     days = []
     for i, date in enumerate(daily["time"]):
-        mx, mx_spread = combine(daily, "temperature_2m_max", i)
-        mn, mn_spread = combine(daily, "temperature_2m_min", i)
-        pr, _ = combine(daily, "precipitation_sum", i)
+        mx, mx_spread = combine(daily, "temperature_2m_max", i, models)
+        mn, mn_spread = combine(daily, "temperature_2m_min", i, models)
+        pr, _ = combine(daily, "precipitation_sum", i, models)
         if mx is None or mn is None:
             continue
         spreads = [s for s in (mx_spread, mn_spread) if s is not None]
@@ -201,7 +202,7 @@ def build_payload(slug: str, raw: dict) -> dict:
             "confidence": confidence(max(spreads) if spreads else None),
         })
 
-    alerts = alert_engine.evaluate(hourly, times, start, MODELS, dry=c["dry"])
+    alerts = alert_engine.evaluate(hourly, times, start, models, dry=c["dry"])
     log_forecast(slug, local_now.strftime("%Y-%m-%d"), days)
 
     payload = {
@@ -210,14 +211,61 @@ def build_payload(slug: str, raw: dict) -> dict:
         "current": hours[0] if hours else None,
         "hours": hours, "days": days, "alerts": alerts,
         "level": max((a["level"] for a in alerts), default=0),
-        "local_hour": local_now.hour, "models": MODELS,
+        "local_hour": local_now.hour, "models": models,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source": "Open-Meteo (ECMWF + GFS + ICON)",
+        "source": raw.get("_source", "Open-Meteo (ECMWF + GFS + ICON)"),
     }
     payload["condition"] = content.condition(hours)
     payload["summary"] = content.build_summary(payload)
     payload["tips"] = content.build_tips(payload)
     return payload
+
+
+# ---------- مزود احتياطي: WeatherAPI ----------
+async def fetch_weatherapi(lat: float, lon: float) -> dict:
+    if not config.WEATHERAPI_KEY:
+        raise httpx.HTTPError("WeatherAPI key is not configured")
+    url = "https://api.weatherapi.com/v1/forecast.json"
+    params = {"key": config.WEATHERAPI_KEY, "q": f"{lat},{lon}", "days": 7,
+              "aqi": "no", "alerts": "no"}
+    async with httpx.AsyncClient(timeout=25) as client:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+    model = "weatherapi"
+    hourly = {"time": []}
+    fields = {
+        "temperature_2m": "temp_c", "precipitation": "precip_mm",
+        "wind_speed_10m": "wind_kph", "wind_gusts_10m": "gust_kph",
+        "cloud_cover": "cloud", "relative_humidity_2m": "humidity",
+        "apparent_temperature": "feelslike_c", "uv_index": "uv",
+    }
+    for target in fields:
+        hourly[f"{target}_{model}"] = []
+    hourly[f"snowfall_{model}"] = []
+    daily = {"time": []}
+    for target in ("temperature_2m_max", "temperature_2m_min", "precipitation_sum"):
+        daily[f"{target}_{model}"] = []
+
+    for day in data.get("forecast", {}).get("forecastday", []):
+        daily["time"].append(day.get("date"))
+        d = day.get("day", {})
+        daily[f"temperature_2m_max_{model}"].append(d.get("maxtemp_c"))
+        daily[f"temperature_2m_min_{model}"].append(d.get("mintemp_c"))
+        daily[f"precipitation_sum_{model}"].append(d.get("totalprecip_mm"))
+        for hour in day.get("hour", []):
+            hourly["time"].append(hour.get("time", "").replace(" ", "T"))
+            for target, source in fields.items():
+                hourly[f"{target}_{model}"].append(hour.get(source))
+            hourly[f"snowfall_{model}"].append(hour.get("snow_cm", 0))
+
+    if not hourly["time"] or not daily["time"]:
+        raise ValueError("WeatherAPI returned no forecast data")
+    local_epoch = data.get("location", {}).get("localtime_epoch")
+    offset = int(local_epoch - time.time()) if local_epoch else 0
+    return {"hourly": hourly, "daily": daily, "utc_offset_seconds": offset,
+            "models": [model], "_source": "WeatherAPI (مصدر احتياطي)"}
 
 
 # ---------- الجلب من Open-Meteo ----------
@@ -260,7 +308,13 @@ async def get_weather(slug: str) -> dict:
     c = CITIES[slug]
     try:
         async with _sem:
-            raw = await fetch_forecast(c["lat"], c["lon"])
+            try:
+                raw = await fetch_forecast(c["lat"], c["lon"])
+            except (httpx.HTTPError, KeyError, ValueError) as primary_exc:
+                if not config.WEATHERAPI_KEY:
+                    raise
+                log.warning("Open-Meteo unavailable for %s; trying WeatherAPI: %s", slug, primary_exc)
+                raw = await fetch_weatherapi(c["lat"], c["lon"])
         payload = build_payload(slug, raw)
     except (httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
         log.warning("forecast fetch failed for %s: %s", slug, exc)
