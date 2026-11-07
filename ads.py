@@ -108,7 +108,7 @@ def submit_request(body: AdRequest, request: Request):
     return {"ok": True, "id": rid, "message": "تم استلام طلبك. سنتواصل معك بعد مراجعته."}
 
 @router.get("/api/ads/active")
-def active_ads(slot: str, city: str = "")
+def active_ads(slot: str, city: str = ""):
     if slot not in {"home_top", "map_top", "city_top"}:
         raise HTTPException(400, "مساحة غير صحيحة")
     now = datetime.now(timezone.utc).isoformat()
