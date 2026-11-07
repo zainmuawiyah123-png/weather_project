@@ -147,7 +147,9 @@ def combine(block: dict, base: str, i: int, models=None):
             vals.append(series[i])
     if not vals:
         return None, None
-    return sum(vals) / len(vals), max(vals) - min(vals)
+    # لا يمكن قياس التوافق أو الثقة من مصدر واحد فقط.
+    spread = max(vals) - min(vals) if len(vals) >= 2 else None
+    return sum(vals) / len(vals), spread
 
 
 def confidence(spread):
