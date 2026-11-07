@@ -45,6 +45,9 @@ SITE_NAME_AR = "طقس بلاد الشام"
 SITE_NAME_EN = "Levant Weather"
 CONTACT_EMAIL = _env("CONTACT_EMAIL", "ads@levant-weather.example")
 
+# ---------- Weather providers ----------
+WEATHERAPI_KEY = (_env("WEATHERAPI_KEY") or _env("WEATHER_API_KEY") or _env("WEATHERAPI_API_KEY"))
+
 # ---------- Open-Meteo ----------
 OPEN_METEO_API_KEY = _env("OPEN_METEO_API_KEY")
 API_URL = (
