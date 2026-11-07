@@ -1,0 +1,16 @@
+{
+  "name": "طقس بلاد الشام",
+  "short_name": "طقس الشام",
+  "description": "توقعات وتنبيهات الطقس لبلاد الشام",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#0b4f6c",
+  "theme_color": "#0b4f6c",
+  "icons": [
+    { "src": "/static/logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/logo.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
