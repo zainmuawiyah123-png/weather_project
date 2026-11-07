@@ -273,7 +273,8 @@ async def get_weather(slug: str) -> dict:
         async with _sem:
             raw = await fetch_forecast(c["lat"], c["lon"])
         payload = build_payload(slug, raw)
-    except (httpx.HTTPError, KeyError, ValueError, IndexError):
+    except (httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
+        log.exception("Open-Meteo forecast failed for city %s: %s", slug, exc)
         if hit:  # نعيد آخر نسخة محفوظة بدل أن نترك المستخدم بلا بيانات
             return {**hit[1], "stale": True}
         raise HTTPException(502, "تعذّر جلب بيانات الطقس الآن، حاول بعد قليل")
