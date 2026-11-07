@@ -174,7 +174,10 @@ const view = document.getElementById("view");
 const foot = document.getElementById("foot");
 
 async function loadCities() {
-  const cities = await (await fetch("/api/cities")).json();
+  const citiesRes = await fetch("/api/cities", { cache: "no-store" });
+  if (!citiesRes.ok) throw new Error("تعذّر تحميل قائمة المدن");
+  const cities = await citiesRes.json();
+  if (!Array.isArray(cities) || !cities.length) throw new Error("قائمة المدن غير متاحة");
   const groups = {};
   cities.forEach(c => (groups[c.country] ||= []).push(c));
   citySel.innerHTML = Object.entries(groups).map(([country, list]) =>
@@ -192,11 +195,30 @@ async function loadWeather() {
   try { localStorage.setItem("city", slug); } catch (e) {}
   view.innerHTML = `<p class="hero">جارٍ التحميل…</p>`;
   try {
-    const res = await fetch(`/api/weather/${slug}`);
-    if (!res.ok) throw new Error((await res.json()).detail || "خطأ");
-    render(await res.json());
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch(`/api/weather/${encodeURIComponent(slug)}`, {
+        cache: "no-store", signal: controller.signal
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "تعذّر تحميل بيانات الطقس");
+      if (!data || !data.city || !Array.isArray(data.hours) ||
+          !Array.isArray(data.days) || !Array.isArray(data.alerts) ||
+          !data.days.length) {
+        throw new Error("وصلت بيانات الطقس، لكن تنسيقها غير مكتمل. سنعيد المحاولة لاحقاً.");
+      }
+      render(data);
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (e) {
-    view.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+    const message = e.name === "AbortError"
+      ? "تأخر وصول بيانات الطقس أكثر من 30 ثانية. اضغط إعادة المحاولة."
+      : (e.message || "تعذّر عرض بيانات الطقس");
+    view.innerHTML = `<div class="err"><p>${esc(message)}</p><button class="btn" type="button" id="retryWeather">إعادة المحاولة</button></div>`;
+    const retry = document.getElementById("retryWeather");
+    if (retry) retry.onclick = loadWeather;
   }
 }
 
