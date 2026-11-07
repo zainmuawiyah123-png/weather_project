@@ -32,7 +32,7 @@ def _description(w: dict) -> str:
         if len(nxt) > 155:
             break
         out = nxt
-    return out or f"توقعات طقس {w['city']['name']} اليوم والأيام السبعة القادمة."
+    return out or f"توقعات طقس {w['city']['name']} اليوم والأيام الثلاثة القادمة."
 
 
 CSS = """
@@ -87,12 +87,12 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
     cur = w.get("current") or {}
     today = (w.get("days") or [{}])[0]
     temp = "–" if cur.get("temp") is None else str(round(cur["temp"]))
-    title = f"طقس {name} اليوم وتوقعات 7 أيام | طقس بلاد الشام"
+    title = f"طقس {name} اليوم وتوقعات 3 أيام | طقس بلاد الشام"
     desc = _description(w)
 
     alerts_html = "".join(
         f'<div class="alert l{a["level"]}"><b>{e(a["title"])} · {e(a["level_name"])}</b>{e(a["text"])}'
-        f'<small>{e(a["when"])} · اتفاق {a["agree_n"]} من {a["total"]} نماذج</small></div>'
+        f'<small>{e(a["when"])} · ' + (f'اتفاق {a["agree_n"]} من {a["total"]} نماذج' if a["total"] >= 2 else 'تقدير آلي من مصدر واحد') + '</small></div>'
         for a in w.get("alerts", [])
     )
     alerts_block = (
@@ -185,14 +185,14 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
 <h2>ماذا أفعل اليوم؟</h2>
 <div class="tips">{tips_html}</div>
 
-<h2>توقعات {e(name)} للأيام السبعة القادمة</h2>
+<h2>توقعات {e(name)} للأيام الثلاثة القادمة</h2>
 <div class="wrap">
 <table>
   <thead><tr><th>اليوم</th><th>العظمى</th><th>الصغرى</th><th>الأمطار</th><th>الثقة</th></tr></thead>
   <tbody>{rows}</tbody>
 </table>
 </div>
-<p class="muted">الثقة تعبّر عن مدى اتفاق ثلاثة نماذج جوية (ECMWF وGFS وICON). آخر تحديث: <time datetime="{updated}">{updated}</time></p>
+<p class="muted">تعتمد درجة الثقة على مقارنة مصادر جوية متعددة؛ وعند توفر مصدر واحد فقط لا يمكن قياس التوافق، فتظهر «غير متوفرة». آخر تحديث: <time datetime="{updated}">{updated}</time></p>
 
 <h2>مدن أخرى</h2>
 {links}
