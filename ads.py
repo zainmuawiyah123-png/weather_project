@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field, HttpUrl
 
 DB_PATH = Path(os.getenv("ADS_DB_PATH", "/tmp/levant-weather-ads.db"))
@@ -108,18 +108,29 @@ def submit_request(body: AdRequest, request: Request):
     return {"ok": True, "id": rid, "message": "تم استلام طلبك. سنتواصل معك بعد مراجعته."}
 
 @router.get("/api/ads/active")
-def active_ads(slot: str):
+def active_ads(slot: str, city: str = "")
     if slot not in {"home_top", "map_top", "city_top"}:
         raise HTTPException(400, "مساحة غير صحيحة")
     now = datetime.now(timezone.utc).isoformat()
     with _db() as db:
         rows = db.execute("""SELECT id,title,image_url,target_url,slot,city FROM ads
-          WHERE status='active' AND starts_at<=? AND ends_at>=? AND (city='' OR city IS NULL)
-          ORDER BY id DESC LIMIT 3""", (now,now)).fetchall()
+          WHERE status='active' AND starts_at<=? AND ends_at>=? AND (city='' OR city IS NULL OR city=?) AND slot=?
+          ORDER BY CASE WHEN city=? THEN 0 ELSE 1 END, id DESC LIMIT 3""", (now,now,city,slot,city)).fetchall()
     return [dict(r) for r in rows]
 
-@router.post("/api/ads/{ad_id}/event/{event}")
-def ad_event(ad_id: int, event: str):
+@router.post("/api/ads/{ad_id}/impression")
+def ad_impression(ad_id: int):
+    return _count_event(ad_id, "impression")
+
+@router.get("/api/ads/{ad_id}/click")
+def ad_click(ad_id: int):
+    with _db() as db:
+        row=db.execute("SELECT target_url FROM ads WHERE id=? AND status='active' AND starts_at<=? AND ends_at>=?",(ad_id,datetime.now(timezone.utc).isoformat(),datetime.now(timezone.utc).isoformat())).fetchone()
+        if not row: raise HTTPException(404, "الإعلان غير متاح")
+        db.execute("UPDATE ads SET clicks=clicks+1 WHERE id=?",(ad_id,))
+    return RedirectResponse(row["target_url"], status_code=302)
+
+def _count_event(ad_id: int, event: str):
     if event not in {"impression", "click"}:
         raise HTTPException(404, "حدث غير معروف")
     col = "impressions" if event == "impression" else "clicks"
