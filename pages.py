@@ -159,6 +159,7 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
 
 <main>
 <h1>طقس {e(name)} اليوم</h1>
+<a class="ad-slot" href="/advertise"><strong>مساحة إعلانية متاحة في {e(name)}</strong><span>رعاية محلية تصل إلى المهتمين بطقس المدينة</span></a>
 <section class="hero" style="background:{gradient(w)}">
   <div>{e(name)}، {e(c["country"])}</div>
   <div class="temp">{temp}°</div>
@@ -198,6 +199,7 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
 </main>
 
 <footer>
+  <p><a href="/advertise">أعلن معنا · احجز مساحة إعلانية</a></p>
   <p>هذه التوقعات والتنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية من دوائر الأرصاد الجوية والدفاع المدني.</p>
   <p>المصدر: {e(w.get("source", ""))}. <a href="/accuracy">لوحة دقة التوقعات وطريقة حسابها</a></p>
 </footer>

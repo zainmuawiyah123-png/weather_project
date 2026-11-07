@@ -524,6 +524,11 @@ def map_page():
     return FileResponse(BASE_DIR / "static" / "map.html")
 
 
+@app.get("/advertise")
+def advertise_page():
+    return FileResponse(BASE_DIR / "static" / "advertise.html")
+
+
 @app.get("/accuracy")
 def accuracy_page():
     return FileResponse(BASE_DIR / "static" / "accuracy.html")
