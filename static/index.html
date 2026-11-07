@@ -139,6 +139,7 @@
   footer { margin-top: 28px; color: var(--muted); font-size: .8rem; }
   footer p { margin: 6px 0; }
   .err { background: var(--a1-bg); color: var(--alert-ink); padding: 14px; border-radius: 8px; }
+  .ad-label{display:inline-block;font-size:.72rem;background:#e8b100;color:#2b2000;padding:1px 8px;border-radius:20px;margin-bottom:5px}.ad-creative{display:block;color:inherit;text-decoration:none}.ad-creative img{max-width:100%;max-height:110px;object-fit:contain}
 </style>
 </head>
 <body>
@@ -153,10 +154,7 @@
   </div>
 </header>
 
-<a class="ad-slot" href="/advertise" aria-label="احجز مساحة إعلانية">
-  <strong>مساحة إعلانية رئيسية متاحة للرعاية والإعلان</strong>
-  <span>كن أمام زوار طقس بلاد الشام — التفاصيل عبر صفحة أعلن معنا</span>
-</a>
+<div id="home-ad" class="ad-slot" aria-live="polite"><a href="/advertise"><strong>مساحة إعلانية متاحة</strong><span>أعلن معنا في طقس بلاد الشام</span></a></div>
 
 <main id="view" aria-live="polite"><p class="hero">جارٍ التحميل…</p></main>
 
@@ -387,6 +385,6 @@ loadCities().then(loadWeather).catch(() => {
   view.innerHTML = `<p class="err">تعذّر الاتصال بالخادم</p>`;
 });
 </script>
-<script src="/static/share.js"></script>
+<script src="/static/share.js"></script><script src="/static/ads.js"></script><script>window.loadWeatherAd && window.loadWeatherAd("home-ad","home_top");</script>
 </body>
 </html>
