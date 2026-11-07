@@ -93,7 +93,7 @@
 <div class="list" id="alertList"><p class="muted">جارٍ تحميل تنبيهات المدن…</p></div>
 
 <footer>
-  <p>طبقات الخريطة مُنتجة من توقعات نموذج Open-Meteo على شبكة تقارب 50 كم، وهي ليست صور رادار حقيقية، فقد لا تُظهر خلايا العواصف الصغيرة.</p>
+  <p>طبقات الطقس من خرائط WeatherAPI، بتحديثات توقعات كل ساعة للـ 3 أيام القادمة. هذه طبقات توقعات وليست صور رادار مباشر.</p>
   <p>ألوان المدن تعبّر عن أشد تنبيه خلال 48 ساعة. التنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية.</p>
 </footer>
 
@@ -101,142 +101,96 @@
 <script>
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-/* ---------- الطبقات والألوان ---------- */
+/* ---------- طبقات WeatherAPI الزمنية ---------- */
 const LAYERS = {
-  p: { label: "الأمطار", unit: "ملم/س", stops: [
-    [0.02, [110, 190, 255, 0]], [0.3, [110, 190, 255, 150]], [1, [50, 140, 235, 185]],
-    [3, [30, 90, 205, 210]], [8, [115, 45, 195, 225]], [20, [195, 30, 150, 240]] ] },
-  t: { label: "الحرارة", unit: "°", stops: [
-    [-5, [45, 70, 175, 175]], [5, [50, 150, 205, 175]], [15, [125, 200, 125, 175]],
-    [25, [250, 210, 75, 180]], [35, [240, 125, 45, 190]], [45, [190, 35, 35, 200]] ] },
-  g: { label: "الرياح (الهبّات)", unit: "كم/س", stops: [
-    [25, [250, 225, 100, 0]], [40, [250, 215, 90, 150]], [60, [245, 150, 50, 185]],
-    [80, [220, 60, 50, 205]], [100, [135, 30, 150, 225]] ] },
-  s: { label: "الثلوج", unit: "سم/س", stops: [
-    [0.02, [170, 205, 255, 0]], [0.3, [170, 205, 255, 190]], [1, [120, 165, 255, 210]],
-    [3, [95, 110, 230, 228]], [6, [150, 70, 200, 240]] ] },
+  precip: { label: "الأمطار", path: "precip", unit: "توقعات الهطول" },
+  temp: { label: "الحرارة", path: "tmp2m", unit: "درجة الحرارة" },
+  wind: { label: "الرياح", path: "wind", unit: "سرعة الرياح" },
+  pressure: { label: "الضغط", path: "pressure", unit: "الضغط الجوي" }
 };
 const LEVEL_COLOR = { 0: "#3f8fa8", 1: "#e8b100", 2: "#ef7b00", 3: "#d62828" };
-
-function colorAt(stops, v) {
-  if (v <= stops[0][0]) return stops[0][1];
-  for (let i = 1; i < stops.length; i++) {
-    if (v <= stops[i][0]) {
-      const [v0, c0] = stops[i - 1], [v1, c1] = stops[i];
-      const f = (v - v0) / (v1 - v0);
-      return c0.map((x, k) => x + (c1[k] - x) * f);
-    }
-  }
-  return stops[stops.length - 1][1];
-}
 
 /* ---------- الخريطة ---------- */
 const map = L.map("map", { zoomControl: true, minZoom: 5, maxZoom: 10 });
 map.fitBounds([[29.3, 34.2], [37.2, 40.8]]);
-// بلاطات OpenStreetMap مناسبة للتجربة؛ عند الإطلاق بحركة كبيرة استخدم مزود بلاطات مناسباً (MapTiler، Stadia...)
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · بيانات الطقس: <a href="https://open-meteo.com">Open-Meteo</a>'
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Weather maps: <a href="https://www.weatherapi.com/docs/weather-maps/">WeatherAPI.com</a>'
 }).addTo(map);
 
-let GRID = null, overlay = null, layerKey = "p", timer = null;
-const SCALE = 10;
-const mercY = lat => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-const invMercY = y => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
-
-// نرسم الشبكة بتنعيم ثنائي الاتجاه، مع تصحيح إسقاط ميركاتور حتى لا تنزاح الطبقة عن الخريطة
-function paint(layer, h) {
-  const { lats, lons } = GRID, R = lats.length, C = lons.length, V = GRID.vars[layer];
-  const W = (C - 1) * SCALE + 1, H = (R - 1) * SCALE + 1;
-  const cv = document.createElement("canvas");
-  cv.width = W; cv.height = H;
-  const ctx = cv.getContext("2d");
-  const img = ctx.createImageData(W, H);
-  const yMin = mercY(lats[0]), yMax = mercY(lats[R - 1]), step = lats[1] - lats[0];
-  const stops = LAYERS[layer].stops;
-  for (let py = 0; py < H; py++) {
-    const lat = invMercY(yMax - ((yMax - yMin) * py) / (H - 1));
-    const fr = Math.min(Math.max((lat - lats[0]) / step, 0), R - 1.0001);
-    const r0 = Math.floor(fr), tr = fr - r0;
-    for (let px = 0; px < W; px++) {
-      const fc = px / SCALE, c0 = Math.min(Math.floor(fc), C - 2), tc = fc - c0;
-      const v = (V[r0][c0][h] * (1 - tc) + V[r0][c0 + 1][h] * tc) * (1 - tr)
-              + (V[r0 + 1][c0][h] * (1 - tc) + V[r0 + 1][c0 + 1][h] * tc) * tr;
-      const col = colorAt(stops, v), o = (py * W + px) * 4;
-      img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = col[3];
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  return cv.toDataURL();
-}
-
-function bounds() {
-  const { lats, lons } = GRID;
-  return [[lats[0], lons[0]], [lats[lats.length - 1], lons[lons.length - 1]]];
-}
-
-function draw() {
-  const url = paint(layerKey, +slider.value);
-  if (overlay) overlay.setUrl(url);
-  else overlay = L.imageOverlay(url, bounds(), { opacity: 1, interactive: false }).addTo(map);
-  overlay.bringToFront();
-  timeLabel.textContent = new Date(GRID.times[+slider.value] + "Z")
-    .toLocaleString("ar-JO-u-nu-latn", { weekday: "long", hour: "numeric", hour12: true });
-}
-
-function buildLegend() {
-  const L_ = LAYERS[layerKey];
-  legend.innerHTML = `<b>${esc(L_.label)} (${esc(L_.unit)})</b>` + L_.stops
-    .filter(s => s[1][3] > 0)
-    .map(s => `<span><i style="background:rgba(${s[1].slice(0, 3).join(",")},${Math.max(s[1][3] / 255, .6)})"></i>${s[0]}</span>`)
-    .join("");
-}
-
-function setLayer(k) {
-  layerKey = k;
-  document.querySelectorAll("#layerBtns button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === k));
-  buildLegend();
-  if (GRID) draw();
-}
-
-const layerBtns = document.getElementById("layerBtns");
-layerBtns.innerHTML = Object.entries(LAYERS)
-  .map(([k, v]) => `<button data-k="${k}" aria-pressed="${k === layerKey}">${esc(v.label)}</button>`).join("");
-layerBtns.addEventListener("click", e => { if (e.target.dataset.k) setLayer(e.target.dataset.k); });
-
+let overlay = null, layerKey = "precip", timer = null;
 const slider = document.getElementById("slider");
 const timeLabel = document.getElementById("timeLabel");
 const legend = document.getElementById("legend");
 const statusEl = document.getElementById("status");
 const playBtn = document.getElementById("playBtn");
+const layerBtns = document.getElementById("layerBtns");
 
-slider.addEventListener("input", () => { if (GRID) draw(); });
+function selectedUtcTime() {
+  const base = new Date();
+  base.setUTCMinutes(0, 0, 0);
+  return new Date(base.getTime() + Number(slider.value) * 3600000);
+}
+function tileUrl(layer, date) {
+  const ymd = date.getUTCFullYear()
+    + String(date.getUTCMonth() + 1).padStart(2, "0")
+    + String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  return "https://weathermaps.weatherapi.com/" + layer + "/tiles/" + ymd + hour + "/{z}/{x}/{y}.png";
+}
+function updateTimeLabel(date) {
+  timeLabel.textContent = date.toLocaleString("ar-JO-u-nu-latn", {
+    weekday: "long", day: "numeric", month: "short",
+    hour: "numeric", minute: "2-digit", hour12: true, timeZone: "UTC"
+  }) + " UTC";
+}
+function draw() {
+  const date = selectedUtcTime();
+  const layer = LAYERS[layerKey];
+  const url = tileUrl(layer.path, date);
+  if (!overlay) {
+    overlay = L.tileLayer(url, { opacity: 0.72, maxZoom: 10, attribution: "WeatherAPI.com" }).addTo(map);
+  } else {
+    overlay.setUrl(url);
+  }
+  updateTimeLabel(date);
+  statusEl.textContent = "توقعات WeatherAPI · " + layer.label + " · التحديث كل ساعة";
+}
+function buildLegend() {
+  legend.textContent = LAYERS[layerKey].unit + " · خرائط توقعات WeatherAPI";
+}
+function setLayer(key) {
+  layerKey = key;
+  document.querySelectorAll("#layerBtns button").forEach(button =>
+    button.setAttribute("aria-pressed", button.dataset.k === key)
+  );
+  buildLegend();
+  draw();
+}
+layerBtns.innerHTML = Object.entries(LAYERS)
+  .map(([key, value]) => '<button data-k="' + key + '" aria-pressed="' + (key === layerKey) + '">' + esc(value.label) + '</button>')
+  .join("");
+layerBtns.addEventListener("click", event => {
+  const button = event.target.closest("button[data-k]");
+  if (button) setLayer(button.dataset.k);
+});
+slider.min = 0;
+slider.max = 71;
+slider.value = 0;
+slider.addEventListener("input", draw);
 playBtn.addEventListener("click", () => {
-  if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "تشغيل"; return; }
+  if (timer) {
+    clearInterval(timer); timer = null; playBtn.textContent = "تشغيل"; return;
+  }
   playBtn.textContent = "إيقاف";
   timer = setInterval(() => {
-    const next = +slider.value + 1;
-    slider.value = next > +slider.max ? slider.min : next;
+    const next = Number(slider.value) + 1;
+    slider.value = next > Number(slider.max) ? slider.min : next;
     draw();
-  }, 700);
+  }, 1000);
 });
-
-async function loadGrid() {
-  try {
-    const res = await fetch("/api/grid");
-    if (!res.ok) throw new Error((await res.json()).detail || "خطأ");
-    GRID = await res.json();
-    const nowIso = new Date().toISOString().slice(0, 13) + ":00";
-    let nowIdx = 0;
-    GRID.times.forEach((t, i) => { if (t <= nowIso) nowIdx = i; });
-    slider.min = nowIdx; slider.max = GRID.times.length - 1; slider.value = nowIdx;
-    draw();
-    statusEl.textContent = GRID.stale ? "تعذّر تحديث الخريطة، تُعرض آخر بيانات محفوظة." : "";
-  } catch (e) {
-    statusEl.textContent = e.message || "تعذّر تحميل الخريطة.";
-  }
-}
-
+buildLegend();
+draw();
 /* ---------- المدن والتنبيهات ---------- */
 const markers = {};
 
@@ -288,8 +242,6 @@ async function loadCities() {
   }
 }
 
-buildLegend();
-loadGrid();
 loadCities();
 </script>
 </body>
