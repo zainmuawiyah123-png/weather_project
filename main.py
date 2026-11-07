@@ -106,7 +106,7 @@ GRID_VARS = {"t": "temperature_2m", "p": "precipitation", "g": "wind_gusts_10m",
 _cache: dict[str, tuple[float, dict]] = {}
 _grid_cache: dict = {"ts": 0.0, "data": None}
 _grid_lock = asyncio.Lock()
-_sem = asyncio.Semaphore(6)
+_sem = asyncio.Semaphore(2)
 
 
 # ---------- سجل التوقعات ----------
@@ -230,13 +230,23 @@ async def fetch_forecast(lat: float, lon: float) -> dict:
     }
     if API_KEY:
         base["apikey"] = API_KEY
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with httpx.AsyncClient(timeout=25) as client:
         for hourly in (FULL_HOURLY, MID_HOURLY, BASIC_HOURLY):
-            r = await client.get(API_URL, params={**base, "hourly": hourly})
-            if r.status_code == 400 and hourly != BASIC_HOURLY:
-                continue
-            r.raise_for_status()
-            return r.json()
+            for attempt in range(3):
+                r = await client.get(API_URL, params={**base, "hourly": hourly})
+                if r.status_code == 400 and hourly != BASIC_HOURLY:
+                    break
+                if r.status_code == 429 or r.status_code >= 500:
+                    if attempt < 2:
+                        retry_after = r.headers.get("Retry-After", "")
+                        try:
+                            delay = min(max(float(retry_after), 2.0), 10.0)
+                        except (TypeError, ValueError):
+                            delay = 2.0 * (attempt + 1)
+                        await asyncio.sleep(delay)
+                        continue
+                r.raise_for_status()
+                return r.json()
     raise httpx.HTTPError("no response")
 
 
@@ -252,7 +262,8 @@ async def get_weather(slug: str) -> dict:
         async with _sem:
             raw = await fetch_forecast(c["lat"], c["lon"])
         payload = build_payload(slug, raw)
-    except (httpx.HTTPError, KeyError, ValueError, IndexError):
+    except (httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
+        log.warning("forecast fetch failed for %s: %s", slug, exc)
         if hit:
             return {**hit[1], "stale": True}
         raise HTTPException(502, "تعذّر جلب بيانات الطقس الآن، حاول بعد قليل")
@@ -343,7 +354,8 @@ async def push_loop() -> None:
 
 
 async def accuracy_cycle() -> None:
-    await asyncio.gather(*(get_weather(s) for s in CITIES), return_exceptions=True)
+    # Forecasts are fetched on demand. Do not burst-request every city here:
+    # Open-Meteo may rate-limit the shared public endpoint (HTTP 429).
     try:
         info = await asyncio.to_thread(accuracy.collect, DB_PATH)
         log.info("observations collected: %s", info)
