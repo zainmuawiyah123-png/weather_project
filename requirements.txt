@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+httpx
+pywebpush
+cryptography
+tzdata
