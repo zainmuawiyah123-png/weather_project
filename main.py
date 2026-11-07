@@ -9,7 +9,7 @@
   /api/cities            قائمة المدن
   /api/weather/{city}    توقع المدينة + التنبيهات
   /api/overview          حالة كل المدن (للخريطة)
-  /api/grid              شبكة توقعات فوق بلاد الشام (طبقات الخريطة)
+  طبقات الخريطة تُحمّل مباشرة من WeatherAPI Weather Maps
   /api/push/*            الإشعارات
   /api/accuracy          دقة التوقعات مقابل قراءات محطات الرصد
   /accuracy              لوحة الدقة
@@ -45,7 +45,6 @@ log = logging.getLogger("levant-weather")
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "forecast_log.db"
 CACHE_TTL = 30 * 60      # كاش المدينة: 30 دقيقة
-GRID_TTL = 60 * 60       # كاش الشبكة: ساعة
 PUSH_EVERY = 30 * 60     # فحص التنبيهات للمشتركين كل 30 دقيقة
 ACCURACY_EVERY = 6 * 3600  # جلب قراءات المحطات وتسجيل توقعات كل المدن كل 6 ساعات
 
@@ -103,11 +102,8 @@ CITIES = {
 # شبكة الخريطة: كل 0.5 درجة فوق بلاد الشام والمناطق المحيطة
 GRID_LATS = [round(29.25 + 0.5 * i, 2) for i in range(17)]   # 29.25 .. 37.25
 GRID_LONS = [round(34.25 + 0.5 * j, 2) for j in range(14)]   # 34.25 .. 40.75
-GRID_VARS = {"t": "temperature_2m", "p": "precipitation", "g": "wind_gusts_10m", "s": "snowfall"}
 
 _cache: dict[str, tuple[float, dict]] = {}
-_grid_cache: dict = {"ts": 0.0, "data": None}
-_grid_lock = asyncio.Lock()
 _sem = asyncio.Semaphore(6)  # حد للطلبات المتزامنة نحو Open-Meteo
 
 
@@ -290,66 +286,6 @@ async def get_weather(slug: str) -> dict:
     return payload
 
 
-async def fetch_grid_chunk(lats: list, lons: list) -> list:
-    params = {
-        "latitude": ",".join(map(str, lats)),
-        "longitude": ",".join(map(str, lons)),
-        "hourly": ",".join(GRID_VARS.values()),
-        "timezone": "UTC",
-        "forecast_days": 2,
-        "wind_speed_unit": "kmh",
-    }
-    if API_KEY:
-        params["apikey"] = API_KEY
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(API_URL, params=params)
-        r.raise_for_status()
-        data = r.json()
-    return data if isinstance(data, list) else [data]
-
-
-async def get_grid() -> dict:
-    def fresh():
-        return _grid_cache["data"] and time.time() - _grid_cache["ts"] < GRID_TTL
-
-    if fresh():
-        return _grid_cache["data"]
-    async with _grid_lock:
-        if fresh():
-            return _grid_cache["data"]
-        points = [(la, lo) for la in GRID_LATS for lo in GRID_LONS]
-        chunks = [points[i:i + 60] for i in range(0, len(points), 60)]
-        try:
-            parts = await asyncio.gather(
-                *(fetch_grid_chunk([p[0] for p in ch], [p[1] for p in ch]) for ch in chunks)
-            )
-            flat = [loc for part in parts for loc in part]
-            if len(flat) != len(points):
-                raise ValueError("grid size mismatch")
-            times = flat[0]["hourly"]["time"]
-            vars_ = {}
-            for key, name in GRID_VARS.items():
-                grid, i = [], 0
-                for _ in GRID_LATS:
-                    row = []
-                    for _ in GRID_LONS:
-                        series = flat[i]["hourly"][name]
-                        i += 1
-                        row.append([round(v, 1) if v is not None else 0.0 for v in series])
-                    grid.append(row)
-                vars_[key] = grid
-        except (httpx.HTTPError, KeyError, ValueError, IndexError):
-            if _grid_cache["data"]:
-                return {**_grid_cache["data"], "stale": True}
-            raise HTTPException(502, "تعذّر جلب بيانات الخريطة الآن")
-
-        data = {
-            "times": times, "lats": GRID_LATS, "lons": GRID_LONS, "vars": vars_,
-            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "source": "Open-Meteo",
-        }
-        _grid_cache.update(ts=time.time(), data=data)
-        return data
 
 
 # ---------- حلقة الإشعارات ----------
@@ -441,11 +377,6 @@ async def overview():
             }
         )
     return out
-
-
-@app.get("/api/grid")
-async def grid():
-    return await get_grid()
 
 
 class SubscribeBody(BaseModel):

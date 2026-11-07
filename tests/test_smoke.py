@@ -40,6 +40,15 @@ def test_city_api_has_jordan_and_other_levant_cities():
         }
 
 
+def test_map_uses_weatherapi_tiles_not_open_meteo_grid():
+    with TestClient(main.app) as client:
+        response = client.get("/map")
+        assert response.status_code == 200
+        assert "weathermaps.weatherapi.com" in response.text
+        assert "Open-Meteo" not in response.text
+        assert "الضغط" in response.text
+
+
 def test_advertising_page_has_contact_and_ad_types():
     with TestClient(main.app) as client:
         response = client.get("/advertise")
