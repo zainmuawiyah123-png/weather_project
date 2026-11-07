@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>خريطة الطقس والتنبيهات - طقس بلاد الشام</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0B4F6C">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #e8f1f2; --surface: #ffffff; --ink: #0b2f40; --muted: #4b6874; --line: #d3e1e3;
+    --cold: #0b6e99; --y: #e8b100; --o: #ef7b00; --r: #d62828;
+    --a1-bg: #fff6d6; --a2-bg: #ffe7cc; --a3-bg: #ffd9d9; --alert-ink: #4a3200;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a1a22; --surface: #112a36; --ink: #e8f2f4; --muted: #8fb0bb; --line: #1f3d4a;
+      --cold: #5cb8e0; --a1-bg: #3a3210; --a2-bg: #3d2610; --a3-bg: #3d1717; --alert-ink: #f6e3b8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0 auto; max-width: 960px; padding: 20px 16px 48px;
+    font-family: "Cairo", system-ui, sans-serif; color: var(--ink); background: var(--bg); line-height: 1.6;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+  .brand img { width: 48px; height: 48px; border-radius: 14px; display: block; }
+  h1 { font-size: 1.35rem; font-weight: 800; margin: 0; line-height: 1.2; }
+  .brand small { color: var(--muted); font-size: .8rem; }
+  .navlink, button {
+    font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; text-decoration: none; cursor: pointer;
+  }
+  button[aria-pressed="true"] { background: var(--cold); color: #fff; border-color: transparent; font-weight: 600; }
+  button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--cold); outline-offset: 2px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 10px; }
+  .timebar { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+  .timebar input[type=range] { flex: 1; accent-color: var(--cold); }
+  #timeLabel { min-width: 130px; font-weight: 600; }
+
+  #map { height: min(66vh, 620px); border-radius: 18px; border: 1px solid var(--line); background: var(--surface); }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 2px; font-size: .85rem; color: var(--muted); align-items: center; }
+  .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-inline-end: 4px; vertical-align: -2px; border: 1px solid var(--line); }
+
+  h2 { font-size: 1rem; margin: 26px 0 10px; color: var(--muted); font-weight: 600; }
+  .list { display: grid; gap: 8px; }
+  .item {
+    display: flex; justify-content: space-between; gap: 10px; align-items: center; text-align: start;
+    width: 100%; border-radius: 12px; padding: 10px 14px; border: 0; border-inline-start: 6px solid var(--y);
+    background: var(--a1-bg); color: var(--alert-ink);
+  }
+  .item.lvl2 { border-color: var(--o); background: var(--a2-bg); }
+  .item.lvl3 { border-color: var(--r); background: var(--a3-bg); }
+  .item small { opacity: .85; display: block; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  #status { color: var(--muted); margin: 8px 2px; min-height: 1.4em; }
+  footer { margin-top: 26px; color: var(--muted); font-size: .8rem; }
+  footer p { margin: 6px 0; }
+  .leaflet-popup-content { font-family: "Cairo", system-ui, sans-serif; direction: rtl; text-align: right; }
+  .pop-alert { margin-top: 6px; padding-inline-start: 8px; border-inline-start: 4px solid var(--y); }
+  .pop-alert.lvl2 { border-color: var(--o); }
+  .pop-alert.lvl3 { border-color: var(--r); }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">
+    <img src="/static/logo.svg" alt="" width="48" height="48">
+    <div><h1>خريطة الطقس والتنبيهات</h1><small>طقس بلاد الشام</small></div>
+  </a>
+  <a class="navlink" href="/">الصفحة الرئيسية</a>
+</header>
+
+<div class="controls" role="group" aria-label="طبقة الخريطة" id="layerBtns"></div>
+<div class="timebar">
+  <button id="playBtn" aria-label="تشغيل الشريط الزمني">تشغيل</button>
+  <input type="range" id="slider" min="0" max="0" value="0" aria-label="الوقت">
+  <span id="timeLabel"></span>
+</div>
+
+<div id="map" role="region" aria-label="خريطة الطقس"></div>
+<div class="legend" id="legend"></div>
+<div id="status" role="status">جارٍ تحميل الخريطة…</div>
+
+<h2>التنبيهات النشطة</h2>
+<div class="list" id="alertList"><p class="muted">جارٍ تحميل تنبيهات المدن…</p></div>
+
+<footer>
+  <p>طبقات الخريطة مُنتجة من توقعات نموذج Open-Meteo على شبكة تقارب 50 كم، وهي ليست صور رادار حقيقية، فقد لا تُظهر خلايا العواصف الصغيرة.</p>
+  <p>ألوان المدن تعبّر عن أشد تنبيه خلال 48 ساعة. التنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية.</p>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---------- الطبقات والألوان ---------- */
+const LAYERS = {
+  p: { label: "الأمطار", unit: "ملم/س", stops: [
+    [0.02, [110, 190, 255, 0]], [0.3, [110, 190, 255, 150]], [1, [50, 140, 235, 185]],
+    [3, [30, 90, 205, 210]], [8, [115, 45, 195, 225]], [20, [195, 30, 150, 240]] ] },
+  t: { label: "الحرارة", unit: "°", stops: [
+    [-5, [45, 70, 175, 175]], [5, [50, 150, 205, 175]], [15, [125, 200, 125, 175]],
+    [25, [250, 210, 75, 180]], [35, [240, 125, 45, 190]], [45, [190, 35, 35, 200]] ] },
+  g: { label: "الرياح (الهبّات)", unit: "كم/س", stops: [
+    [25, [250, 225, 100, 0]], [40, [250, 215, 90, 150]], [60, [245, 150, 50, 185]],
+    [80, [220, 60, 50, 205]], [100, [135, 30, 150, 225]] ] },
+  s: { label: "الثلوج", unit: "سم/س", stops: [
+    [0.02, [170, 205, 255, 0]], [0.3, [170, 205, 255, 190]], [1, [120, 165, 255, 210]],
+    [3, [95, 110, 230, 228]], [6, [150, 70, 200, 240]] ] },
+};
+const LEVEL_COLOR = { 0: "#3f8fa8", 1: "#e8b100", 2: "#ef7b00", 3: "#d62828" };
+
+function colorAt(stops, v) {
+  if (v <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) {
+    if (v <= stops[i][0]) {
+      const [v0, c0] = stops[i - 1], [v1, c1] = stops[i];
+      const f = (v - v0) / (v1 - v0);
+      return c0.map((x, k) => x + (c1[k] - x) * f);
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+/* ---------- الخريطة ---------- */
+const map = L.map("map", { zoomControl: true, minZoom: 5, maxZoom: 10 });
+map.fitBounds([[29.3, 34.2], [37.2, 40.8]]);
+// بلاطات OpenStreetMap مناسبة للتجربة؛ عند الإطلاق بحركة كبيرة استخدم مزود بلاطات مناسباً (MapTiler، Stadia...)
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · بيانات الطقس: <a href="https://open-meteo.com">Open-Meteo</a>'
+}).addTo(map);
+
+let GRID = null, overlay = null, layerKey = "p", timer = null;
+const SCALE = 10;
+const mercY = lat => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+const invMercY = y => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
+
+// نرسم الشبكة بتنعيم ثنائي الاتجاه، مع تصحيح إسقاط ميركاتور حتى لا تنزاح الطبقة عن الخريطة
+function paint(layer, h) {
+  const { lats, lons } = GRID, R = lats.length, C = lons.length, V = GRID.vars[layer];
+  const W = (C - 1) * SCALE + 1, H = (R - 1) * SCALE + 1;
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  const img = ctx.createImageData(W, H);
+  const yMin = mercY(lats[0]), yMax = mercY(lats[R - 1]), step = lats[1] - lats[0];
+  const stops = LAYERS[layer].stops;
+  for (let py = 0; py < H; py++) {
+    const lat = invMercY(yMax - ((yMax - yMin) * py) / (H - 1));
+    const fr = Math.min(Math.max((lat - lats[0]) / step, 0), R - 1.0001);
+    const r0 = Math.floor(fr), tr = fr - r0;
+    for (let px = 0; px < W; px++) {
+      const fc = px / SCALE, c0 = Math.min(Math.floor(fc), C - 2), tc = fc - c0;
+      const v = (V[r0][c0][h] * (1 - tc) + V[r0][c0 + 1][h] * tc) * (1 - tr)
+              + (V[r0 + 1][c0][h] * (1 - tc) + V[r0 + 1][c0 + 1][h] * tc) * tr;
+      const col = colorAt(stops, v), o = (py * W + px) * 4;
+      img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = col[3];
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv.toDataURL();
+}
+
+function bounds() {
+  const { lats, lons } = GRID;
+  return [[lats[0], lons[0]], [lats[lats.length - 1], lons[lons.length - 1]]];
+}
+
+function draw() {
+  const url = paint(layerKey, +slider.value);
+  if (overlay) overlay.setUrl(url);
+  else overlay = L.imageOverlay(url, bounds(), { opacity: 1, interactive: false }).addTo(map);
+  overlay.bringToFront();
+  timeLabel.textContent = new Date(GRID.times[+slider.value] + "Z")
+    .toLocaleString("ar-JO-u-nu-latn", { weekday: "long", hour: "numeric", hour12: true });
+}
+
+function buildLegend() {
+  const L_ = LAYERS[layerKey];
+  legend.innerHTML = `<b>${esc(L_.label)} (${esc(L_.unit)})</b>` + L_.stops
+    .filter(s => s[1][3] > 0)
+    .map(s => `<span><i style="background:rgba(${s[1].slice(0, 3).join(",")},${Math.max(s[1][3] / 255, .6)})"></i>${s[0]}</span>`)
+    .join("");
+}
+
+function setLayer(k) {
+  layerKey = k;
+  document.querySelectorAll("#layerBtns button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === k));
+  buildLegend();
+  if (GRID) draw();
+}
+
+const layerBtns = document.getElementById("layerBtns");
+layerBtns.innerHTML = Object.entries(LAYERS)
+  .map(([k, v]) => `<button data-k="${k}" aria-pressed="${k === layerKey}">${esc(v.label)}</button>`).join("");
+layerBtns.addEventListener("click", e => { if (e.target.dataset.k) setLayer(e.target.dataset.k); });
+
+const slider = document.getElementById("slider");
+const timeLabel = document.getElementById("timeLabel");
+const legend = document.getElementById("legend");
+const statusEl = document.getElementById("status");
+const playBtn = document.getElementById("playBtn");
+
+slider.addEventListener("input", () => { if (GRID) draw(); });
+playBtn.addEventListener("click", () => {
+  if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "تشغيل"; return; }
+  playBtn.textContent = "إيقاف";
+  timer = setInterval(() => {
+    const next = +slider.value + 1;
+    slider.value = next > +slider.max ? slider.min : next;
+    draw();
+  }, 700);
+});
+
+async function loadGrid() {
+  try {
+    const res = await fetch("/api/grid");
+    if (!res.ok) throw new Error((await res.json()).detail || "خطأ");
+    GRID = await res.json();
+    const nowIso = new Date().toISOString().slice(0, 13) + ":00";
+    let nowIdx = 0;
+    GRID.times.forEach((t, i) => { if (t <= nowIso) nowIdx = i; });
+    slider.min = nowIdx; slider.max = GRID.times.length - 1; slider.value = nowIdx;
+    draw();
+    statusEl.textContent = GRID.stale ? "تعذّر تحديث الخريطة، تُعرض آخر بيانات محفوظة." : "";
+  } catch (e) {
+    statusEl.textContent = e.message || "تعذّر تحميل الخريطة.";
+  }
+}
+
+/* ---------- المدن والتنبيهات ---------- */
+const markers = {};
+
+function popupHtml(c) {
+  const alerts = c.alerts.map(a =>
+    `<div class="pop-alert lvl${a.level}"><b>${esc(a.title)}</b> · ${esc(a.level_name)}<br><small>${esc(a.when)} · اتفاق ${a.agree_n} من ${a.total}</small></div>`).join("");
+  return `<b>${esc(c.name)}</b>، ${esc(c.country)}<br>
+    الحرارة ${c.temp == null ? "–" : Math.round(c.temp)}° · الارتفاع ${c.elev} م
+    ${alerts || '<div class="muted">لا تنبيهات</div>'}
+    <div style="margin-top:6px"><a href="/?city=${encodeURIComponent(c.slug)}">التفاصيل والإشعارات</a></div>`;
+}
+
+async function loadCities() {
+  const list = document.getElementById("alertList");
+  try {
+    const res = await fetch("/api/overview");
+    if (!res.ok) throw new Error();
+    const cities = await res.json();
+
+    cities.forEach(c => {
+      const m = L.circleMarker([c.lat, c.lon], {
+        radius: 7 + c.level * 2, color: "#ffffff", weight: 2,
+        fillColor: LEVEL_COLOR[c.level], fillOpacity: 1
+      }).addTo(map).bindPopup(popupHtml(c)).bindTooltip(c.name, { direction: "top" });
+      markers[c.slug] = m;
+    });
+
+    const items = [];
+    cities.forEach(c => c.alerts.forEach(a => items.push({ c, a })));
+    items.sort((x, y) => y.a.level - x.a.level || x.a.lead_hours - y.a.lead_hours);
+
+    list.innerHTML = items.length
+      ? items.slice(0, 14).map((it, i) =>
+          `<button class="item lvl${it.a.level}" data-slug="${esc(it.c.slug)}">
+             <span><b>${esc(it.a.title)}</b> · ${esc(it.c.name)}<small>${esc(it.a.when)} · اتفاق ${it.a.agree_n} من ${it.a.total} نماذج</small></span>
+             <span>${esc(it.a.level_name)}</span></button>`).join("")
+      : `<p class="muted">لا توجد تنبيهات نشطة في أي مدينة خلال 48 ساعة.</p>`;
+
+    list.onclick = e => {
+      const b = e.target.closest("button[data-slug]");
+      if (!b || !markers[b.dataset.slug]) return;
+      const m = markers[b.dataset.slug];
+      map.flyTo(m.getLatLng(), 9);
+      m.openPopup();
+      document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+  } catch (e) {
+    list.innerHTML = `<p class="muted">تعذّر تحميل تنبيهات المدن الآن.</p>`;
+  }
+}
+
+buildLegend();
+loadGrid();
+loadCities();
+</script>
+</body>
+</html>

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>طقس بلاد الشام</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0B4F6C">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #e8f1f2;
+    --surface: #ffffff;
+    --ink: #0b2f40;
+    --muted: #4b6874;
+    --line: #d3e1e3;
+    --cold: #0b6e99;
+    --warm: #e08a00;
+    --frost: #4fa3c7;
+    --y: #e8b100; --o: #ef7b00; --r: #d62828;
+    --a1-bg: #fff6d6; --a2-bg: #ffe7cc; --a3-bg: #ffd9d9; --alert-ink: #4a3200;
+    --grad: linear-gradient(160deg, #0b5c7a, #2a9aa8);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a1a22;
+      --surface: #112a36;
+      --ink: #e8f2f4;
+      --muted: #8fb0bb;
+      --line: #1f3d4a;
+      --cold: #5cb8e0;
+      --warm: #ffb84d;
+      --frost: #8cc8e6;
+      --a1-bg: #3a3210; --a2-bg: #3d2610; --a3-bg: #3d1717; --alert-ink: #f6e3b8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0 auto; max-width: 720px; padding: 20px 16px 48px;
+    font-family: "Cairo", system-ui, sans-serif; color: var(--ink);
+    background: var(--bg); line-height: 1.6;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { width: 48px; height: 48px; border-radius: 14px; display: block; }
+  h1 { font-size: 1.35rem; font-weight: 800; margin: 0; line-height: 1.2; }
+  .brand small { color: var(--muted); font-size: .8rem; }
+  .tools { display: flex; gap: 8px; align-items: center; }
+  select, .navlink, button.btn {
+    font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; text-decoration: none;
+  }
+  select { min-width: 140px; }
+  button.btn { cursor: pointer; background: var(--cold); color: #fff; border-color: transparent; font-weight: 600; }
+  button.btn:disabled { opacity: .6; cursor: default; }
+  select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--cold); outline-offset: 2px; }
+
+  .hero {
+    position: relative; overflow: hidden; margin: 22px 0 8px; padding: 26px 24px 70px;
+    border-radius: 24px; color: #fff; background: var(--grad);
+  }
+  .hero::after {
+    content: ""; position: absolute; inset-inline: 0; bottom: 0; height: 64px; pointer-events: none;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 64' preserveAspectRatio='none'%3E%3Cpath d='M0 40 L50 18 L90 34 L150 6 L210 38 L270 14 L330 36 L400 20 V64 H0Z' fill='%23fff' fill-opacity='.14'/%3E%3Cpath d='M0 52 L60 34 L120 48 L190 26 L260 50 L330 30 L400 46 V64 H0Z' fill='%23fff' fill-opacity='.2'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+  }
+  .hero .city { color: rgba(255,255,255,.92); font-size: 1.05rem; font-weight: 600; }
+  .hero .temp { font-size: 6rem; font-weight: 800; line-height: 1.05; letter-spacing: -2px; }
+  .hero .meta { color: #fff; font-weight: 600; display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; }
+
+  .alerts { display: grid; gap: 10px; margin: 18px 0; }
+  .alert {
+    color: var(--alert-ink); border-radius: 12px; padding: 12px 14px;
+    border-inline-start: 6px solid var(--y); background: var(--a1-bg);
+  }
+  .alert.lvl2 { border-color: var(--o); background: var(--a2-bg); }
+  .alert.lvl3 { border-color: var(--r); background: var(--a3-bg); }
+  .alert .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .alert b { font-size: 1.02rem; }
+  .badge {
+    font-size: .75rem; font-weight: 700; padding: 2px 10px; border-radius: 999px;
+    background: var(--y); color: #2b2000;
+  }
+  .lvl2 .badge { background: var(--o); color: #2b1400; }
+  .lvl3 .badge { background: var(--r); color: #fff; }
+  .alert p { margin: 4px 0 2px; }
+  .alert small { opacity: .85; }
+
+  .push {
+    display: grid; gap: 10px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; padding: 14px 16px; margin: 14px 0;
+  }
+  .push .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: .85rem; }
+
+  h2 { font-size: 1rem; margin: 28px 0 10px; color: var(--muted); font-weight: 600; }
+
+  .hours { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+  .hour {
+    flex: 0 0 62px; text-align: center; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 4px; font-size: .9rem;
+  }
+  .hour b { display: block; font-size: 1.1rem; }
+  .hour .rain { color: var(--cold); font-size: .8rem; min-height: 1.2em; }
+
+  .days { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 4px 16px; }
+  .day {
+    display: grid; grid-template-columns: 70px 1fr 56px; align-items: center; gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid var(--line);
+  }
+  .day:last-child { border-bottom: 0; }
+  .day .name { font-weight: 600; }
+  .range { position: relative; height: 8px; background: var(--line); border-radius: 4px; }
+  .range i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: linear-gradient(to left, var(--warm), var(--cold)); }
+  .nums { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-top: 4px; }
+  .conf { font-size: .75rem; color: var(--muted); text-align: end; }
+  .rainmm { color: var(--cold); font-size: .8rem; }
+
+  .acc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .acc .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; text-align: center; }
+  .acc .tile b { display: block; font-size: 1.5rem; font-weight: 800; color: var(--cold); line-height: 1.2; }
+  .acc .tile span { font-size: .78rem; color: var(--muted); }
+  .acc .note { grid-column: 1 / -1; }
+  footer a { color: var(--cold); }
+  .box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
+  .box p { margin: 0; }
+  .box .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .tips { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 14px 0; }
+  .tips .box { margin: 0; }
+  .tips small { display: block; color: var(--muted); font-weight: 600; }
+  footer { margin-top: 28px; color: var(--muted); font-size: .8rem; }
+  footer p { margin: 6px 0; }
+  .err { background: var(--a1-bg); color: var(--alert-ink); padding: 14px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img src="/static/logo.svg" alt="" width="48" height="48">
+    <div><h1>طقس بلاد الشام</h1><small>الأردن أولاً، مع تغطية مدن بلاد الشام</small></div>
+  </div>
+  <div class="tools">
+    <a class="navlink" href="/map">الخريطة</a>
+    <select id="city" aria-label="اختر المدينة"></select>
+  </div>
+</header>
+
+<main id="view" aria-live="polite"><p class="hero">جارٍ التحميل…</p></main>
+
+<footer id="foot"></footer>
+
+<script>
+const fmtDay = d => new Date(d + "T12:00").toLocaleDateString("ar-JO-u-nu-latn", { weekday: "long" });
+const fmtHour = t => new Date(t).toLocaleTimeString("ar-JO-u-nu-latn", { hour: "numeric", hour12: true });
+const fmtAgo = iso => {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  return m < 1 ? "الآن" : m < 60 ? `قبل ${m} دقيقة` : `قبل ${Math.round(m / 60)} ساعة`;
+};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const citySel = document.getElementById("city");
+const view = document.getElementById("view");
+const foot = document.getElementById("foot");
+
+async function loadCities() {
+  const cities = await (await fetch("/api/cities")).json();
+  const groups = {};
+  cities.forEach(c => (groups[c.country] ||= []).push(c));
+  citySel.innerHTML = Object.entries(groups).map(([country, list]) =>
+    `<optgroup label="${esc(country)}">${list.map(c => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</optgroup>`
+  ).join("");
+  const fromUrl = new URLSearchParams(location.search).get("city");
+  let saved = null;
+  try { saved = localStorage.getItem("city"); } catch (e) {}
+  const pick = [fromUrl, saved].find(s => s && cities.some(c => c.slug === s));
+  citySel.value = pick || "amman";
+}
+
+async function loadWeather() {
+  const slug = citySel.value;
+  try { localStorage.setItem("city", slug); } catch (e) {}
+  view.innerHTML = `<p class="hero">جارٍ التحميل…</p>`;
+  try {
+    const res = await fetch(`/api/weather/${slug}`);
+    if (!res.ok) throw new Error((await res.json()).detail || "خطأ");
+    render(await res.json());
+  } catch (e) {
+    view.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  }
+}
+
+function pickGradient(cur, hours) {
+  const rainy = hours.slice(0, 8).some(h => (h.precip || 0) >= 0.5);
+  const t = cur.temp;
+  if (rainy) return "linear-gradient(160deg, #22344f, #4c6a92)";
+  if (t == null) return "";
+  if (t < 8) return "linear-gradient(160deg, #0b3c5d, #1f6f96)";
+  if (t < 18) return "linear-gradient(160deg, #0b5c7a, #2a9aa8)";
+  if (t < 28) return "linear-gradient(160deg, #1b6f8a, #b8730f)";
+  return "linear-gradient(160deg, #a8331a, #d9650f)";
+}
+
+function alertHtml(a) {
+  const agree = `اتفاق ${a.agree_n} من ${a.total} نماذج`;
+  const risk = a.upgrade_risk ? " · نموذج واحد يتوقع مستوى أشد" : "";
+  return `<div class="alert lvl${a.level}">
+    <div class="top"><b>${esc(a.title)}</b><span class="badge">${esc(a.level_name)} · ${esc(a.level_hint)}</span></div>
+    <p>${esc(a.text)}</p>
+    <small>${esc(a.when)} · ${esc(agree)}${esc(risk)}</small>
+  </div>`;
+}
+
+function render(w) {
+  const cur = w.current || {};
+  const lo = Math.min(...w.days.map(d => d.min));
+  const hi = Math.max(...w.days.map(d => d.max));
+  const span = Math.max(hi - lo, 1);
+
+  const alerts = w.alerts.map(alertHtml).join("");
+
+  const hours = w.hours.map(h =>
+    `<div class="hour">${esc(fmtHour(h.time))}<b>${h.temp == null ? "–" : Math.round(h.temp)}°</b>
+     <div class="rain">${h.precip > 0 ? esc(h.precip) + " ملم" : ""}</div></div>`).join("");
+
+  const days = w.days.map((d, i) => {
+    const right = ((d.min - lo) / span) * 100;
+    const width = ((d.max - d.min) / span) * 100;
+    return `<div class="day">
+      <div class="name">${i === 0 ? "اليوم" : esc(fmtDay(d.date))}</div>
+      <div>
+        <div class="range"><i style="right:${right}%;width:${Math.max(width, 3)}%"></i></div>
+        <div class="nums"><span>${Math.round(d.min)}°</span><span>${Math.round(d.max)}°</span></div>
+      </div>
+      <div class="conf">${d.precip > 0 ? `<div class="rainmm">${esc(d.precip)} ملم</div>` : ""}ثقة ${esc(d.confidence)}</div>
+    </div>`;
+  }).join("");
+
+  view.innerHTML = `
+    <section class="hero" style="--grad:${pickGradient(cur, w.hours)}">
+      <div class="city">${esc(w.city.name)}، ${esc(w.city.country)}</div>
+      <div class="temp">${cur.temp == null ? "–" : Math.round(cur.temp)}°</div>
+      <div class="meta">
+        <span>الرياح ${cur.wind ?? "–"} كم/س</span>
+        <span>العظمى ${Math.round(w.days[0].max)}° · الصغرى ${Math.round(w.days[0].min)}°</span>
+      </div>
+    </section>
+    ${alerts
+      ? `<section class="alerts" aria-label="التنبيهات">${alerts}</section>`
+      : `<p class="muted">لا توجد تنبيهات خلال الـ 48 ساعة القادمة.</p>`}
+    ${w.summary ? `<section class="box" aria-label="ملخص اليوم">
+      <p>${esc(w.summary)}</p>
+      <div class="row">
+        <button class="btn" id="shareBtn" type="button">شارك بطاقة الطقس</button>
+        <a class="navlink" href="/weather/${encodeURIComponent(w.city.slug)}">صفحة ${esc(w.city.name)}</a>
+      </div>
+      <div class="muted" id="shareMsg" role="status"></div>
+    </section>` : ""}
+    ${(w.tips || []).length ? `<section class="tips" aria-label="ماذا أفعل اليوم">${w.tips.map(t =>
+      `<div class="box"><small>${esc(t.label)}</small>${esc(t.text)}</div>`).join("")}</section>` : ""}
+    <section class="push" aria-label="الإشعارات">
+      <div><b>إشعارات تنبيهات ${esc(w.city.name)}</b>
+        <div class="muted">تصلك على هذا الجهاز قبل حدوث الخطر. الجهاز الواحد يتابع مدينة واحدة.</div></div>
+      <div class="row">
+        <select id="pushLevel" aria-label="أدنى مستوى تنبيه">
+          <option value="1">كل التنبيهات</option>
+          <option value="2">برتقالي وأحمر فقط</option>
+          <option value="3">أحمر فقط</option>
+        </select>
+        <button class="btn" id="pushBtn">فعّل الإشعارات</button>
+      </div>
+      <div class="muted" id="pushMsg" role="status"></div>
+    </section>
+    <h2>الساعات القادمة</h2>
+    <div class="hours">${hours}</div>
+    <h2>الأيام السبعة القادمة</h2>
+    <div class="days">${days}</div>
+    <h2>دقة توقعاتنا</h2>
+    <div class="acc" id="acc"><p class="muted note">جارٍ حساب الدقة…</p></div>`;
+
+  bindPush(w.city);
+  loadAccuracy(w.city);
+  const sb = document.getElementById("shareBtn");
+  if (sb) sb.onclick = async () => {
+    const m = document.getElementById("shareMsg");
+    sb.disabled = true; m.textContent = "";
+    try { const r = await shareCard(w); m.textContent = r === "downloaded" ? "تم تنزيل البطاقة على جهازك." : ""; }
+    catch (e) { m.textContent = "تعذّر إنشاء البطاقة."; }
+    finally { sb.disabled = false; }
+  };
+
+  foot.innerHTML = `
+    <p>المصدر: ${esc(w.source)}. التوقع متوسط ثلاثة نماذج، و«الثقة» وعدد النماذج المتفقة يعبّران عن مدى اتفاقها.
+    آخر تحديث ${esc(fmtAgo(w.updated_at))}${w.stale ? " (بيانات محفوظة، تعذّر التحديث)" : ""}.</p>
+    <p>هذه التنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية من دوائر الأرصاد الجوية والدفاع المدني.</p>
+    <p><a href="/accuracy">لوحة الدقة الكاملة وطريقة حسابها</a></p>`;
+}
+
+/* ---------- الدقة ---------- */
+async function loadAccuracy(city) {
+  const box = document.getElementById("acc");
+  try {
+    const res = await fetch("/api/accuracy?days=30");
+    if (!res.ok) throw new Error();
+    const a = await res.json();
+    const own = a.cities[city.slug];
+    let s = own && own.leads["1"], scope = "city";
+    if (!s || s.n < 3) { s = a.overall.leads["1"]; scope = "overall"; }
+    if (!s || s.n < 3) {
+      box.innerHTML = `<p class="muted note">نقارن توقعاتنا بقراءات محطات الرصد يومياً، وستظهر نسبة الدقة هنا بعد توفر 3 أيام مكتملة على الأقل.</p>`;
+      return;
+    }
+    const src = scope === "city"
+      ? `مقارنة ${s.n} يوماً من آخر ${a.days} يوماً بقراءات محطة ${esc(own.station)} (مطار). قد تختلف الحرارة داخل المدينة عن المطار.`
+      : `لا توجد محطة رصد قريبة من ${esc(city.name)} بعد، فهذه أرقام ${a.overall.stations} مدن لها محطات (${s.n} مقارنة).`;
+    box.innerHTML = `
+      <div class="tile"><b>±${s.mae_max}°</b><span>متوسط خطأ العظمى لتوقع الغد</span></div>
+      <div class="tile"><b>${s.within2_max}%</b><span>أيام كان الخطأ فيها 2° أو أقل</span></div>
+      <div class="tile"><b>${s.rain_acc}%</b><span>صحة الحكم: مطر أو لا مطر</span></div>
+      <p class="muted note">${src}</p>`;
+  } catch (e) {
+    box.innerHTML = `<p class="muted note">تعذّر تحميل الدقة الآن.</p>`;
+  }
+}
+
+/* ---------- الإشعارات ---------- */
+let lastLevel = "1";
+
+function b64ToU8(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map(ch => ch.charCodeAt(0)));
+}
+
+async function enablePush(city, level) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    throw new Error("هذا المتصفح لا يدعم الإشعارات. على iPhone ثبّت التطبيق على الشاشة الرئيسية ثم افتحه منها.");
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("لم يُسمح بالإشعارات. فعّلها من إعدادات المتصفح لهذا الموقع.");
+  const reg = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.ready;
+  const key = await (await fetch("/api/push/key")).json();
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key.publicKey) });
+  }
+  const res = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription: sub.toJSON(), city: city.slug, min_level: level })
+  });
+  if (!res.ok) throw new Error("تعذّر حفظ الاشتراك، حاول مرة أخرى.");
+  return `تم التفعيل لمدينة ${city.name}.`;
+}
+
+function bindPush(city) {
+  const btn = document.getElementById("pushBtn");
+  const sel = document.getElementById("pushLevel");
+  const msg = document.getElementById("pushMsg");
+  sel.value = lastLevel;
+  sel.onchange = () => { lastLevel = sel.value; };
+  btn.onclick = async () => {
+    btn.disabled = true;
+    msg.textContent = "";
+    try { msg.textContent = await enablePush(city, +sel.value); }
+    catch (e) { msg.textContent = e.message || "تعذّر التفعيل."; }
+    finally { btn.disabled = false; }
+  };
+}
+
+citySel.addEventListener("change", loadWeather);
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+loadCities().then(loadWeather).catch(() => {
+  view.innerHTML = `<p class="err">تعذّر الاتصال بالخادم</p>`;
+});
+</script>
+<script src="/static/share.js"></script>
+</body>
+</html>
