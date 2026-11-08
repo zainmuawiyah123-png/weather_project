@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>خريطة الطقس والتنبيهات - طقس بلاد الشام</title>
+<title>خريطة حالة الطقس في بلاد الشام</title>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0B4F6C">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,239 +11,152 @@
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-  :root {
-    --bg: #e8f1f2; --surface: #ffffff; --ink: #0b2f40; --muted: #4b6874; --line: #d3e1e3;
-    --cold: #0b6e99; --y: #e8b100; --o: #ef7b00; --r: #d62828;
-    --a1-bg: #fff6d6; --a2-bg: #ffe7cc; --a3-bg: #ffd9d9; --alert-ink: #4a3200;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0a1a22; --surface: #112a36; --ink: #e8f2f4; --muted: #8fb0bb; --line: #1f3d4a;
-      --cold: #5cb8e0; --a1-bg: #3a3210; --a2-bg: #3d2610; --a3-bg: #3d1717; --alert-ink: #f6e3b8;
-    }
-  }
-  * { box-sizing: border-box; }
-  html { background: var(--bg); }
-  body {
-    margin: 0 auto; max-width: 960px; padding: 20px 16px 48px;
-    font-family: "Cairo", system-ui, sans-serif; color: var(--ink); background: var(--bg); line-height: 1.6;
-  }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
-  .brand img { width: 48px; height: 48px; border-radius: 14px; display: block; }
-  h1 { font-size: 1.35rem; font-weight: 800; margin: 0; line-height: 1.2; }
-  .brand small { color: var(--muted); font-size: .8rem; }
-  .navlink, button {
-    font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 14px; text-decoration: none; cursor: pointer;
-  }
-  button[aria-pressed="true"] { background: var(--cold); color: #fff; border-color: transparent; font-weight: 600; }
-  button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--cold); outline-offset: 2px; }
-
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 10px; }
-  .timebar { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
-  .timebar input[type=range] { flex: 1; accent-color: var(--cold); }
-  #timeLabel { min-width: 130px; font-weight: 600; }
-
-  #map { height: min(66vh, 620px); border-radius: 18px; border: 1px solid var(--line); background: var(--surface); }
-  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 2px; font-size: .85rem; color: var(--muted); align-items: center; }
-  .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-inline-end: 4px; vertical-align: -2px; border: 1px solid var(--line); }
-
-  h2 { font-size: 1rem; margin: 26px 0 10px; color: var(--muted); font-weight: 600; }
-  .list { display: grid; gap: 8px; }
-  .item {
-    display: flex; justify-content: space-between; gap: 10px; align-items: center; text-align: start;
-    width: 100%; border-radius: 12px; padding: 10px 14px; border: 0; border-inline-start: 6px solid var(--y);
-    background: var(--a1-bg); color: var(--alert-ink);
-  }
-  .item.lvl2 { border-color: var(--o); background: var(--a2-bg); }
-  .item.lvl3 { border-color: var(--r); background: var(--a3-bg); }
-  .item small { opacity: .85; display: block; }
-  .muted { color: var(--muted); font-size: .85rem; }
-  #status { color: var(--muted); margin: 8px 2px; min-height: 1.4em; }
-  footer { margin-top: 26px; color: var(--muted); font-size: .8rem; }
-  footer p { margin: 6px 0; }
-  .leaflet-popup-content { font-family: "Cairo", system-ui, sans-serif; direction: rtl; text-align: right; }
-  .pop-alert { margin-top: 6px; padding-inline-start: 8px; border-inline-start: 4px solid var(--y); }
-  .pop-alert.lvl2 { border-color: var(--o); }
-  .pop-alert.lvl3 { border-color: var(--r); }
-  .map-ad{margin:14px 0;padding:12px;text-align:center;border:1px dashed var(--cold);border-radius:12px;background:var(--surface)}.map-ad a{color:var(--cold);font-weight:700;text-decoration:none}.ad-label{display:inline-block;font-size:.72rem;background:#e8b100;color:#2b2000;padding:1px 8px;border-radius:20px;margin-bottom:5px}.ad-creative img{max-width:100%;max-height:110px;object-fit:contain}
+  :root { --bg:#e8f1f2; --surface:#fff; --ink:#0b2f40; --muted:#4b6874; --line:#d3e1e3; --cold:#0b6e99; }
+  @media (prefers-color-scheme:dark) { :root { --bg:#0a1a22; --surface:#112a36; --ink:#e8f2f4; --muted:#8fb0bb; --line:#1f3d4a; --cold:#5cb8e0; } }
+  * { box-sizing:border-box; }
+  body { margin:0 auto; max-width:1120px; padding:20px 16px 48px; background:var(--bg); color:var(--ink); font-family:"Cairo",system-ui,sans-serif; line-height:1.6; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:12px; color:inherit; text-decoration:none; }
+  .brand img { width:48px; height:48px; border-radius:14px; }
+  h1 { margin:0; font-size:1.35rem; font-weight:800; line-height:1.2; }
+  .brand small, .muted { color:var(--muted); font-size:.82rem; }
+  .navlink, button { font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:8px 14px; text-decoration:none; cursor:pointer; }
+  button:focus-visible, a:focus-visible { outline:3px solid var(--cold); outline-offset:2px; }
+  .intro { display:flex; justify-content:space-between; align-items:center; gap:14px; margin:20px 0 12px; padding:14px 16px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+  .intro strong { display:block; }
+  .intro p { margin:3px 0 0; color:var(--muted); font-size:.82rem; }
+  .refresh { white-space:nowrap; background:var(--cold); color:#fff; border-color:transparent; }
+  .ad-slot { margin:12px 0; padding:10px; text-align:center; border:1px dashed var(--line); border-radius:14px; background:var(--surface); font-size:.8rem; }
+  .ad-slot a { color:var(--cold); font-weight:700; text-decoration:none; }
+  .map-wrap { position:relative; }
+  #map { height:min(68vh,650px); min-height:430px; border:1px solid var(--line); border-radius:20px; background:var(--surface); overflow:hidden; }
+  .weather-marker { width:66px; min-height:58px; padding:4px 5px; border:2px solid #fff; border-radius:18px; color:#fff; text-align:center; box-shadow:0 5px 14px rgba(11,47,64,.28); transform:translateY(-7px); }
+  .weather-marker.clear { background:linear-gradient(145deg,#1684a7,#59cdd3); }
+  .weather-marker.cloudy { background:linear-gradient(145deg,#53768a,#96b1ba); }
+  .weather-marker.rain { background:linear-gradient(145deg,#2c4666,#6985a5); }
+  .weather-marker.storm { background:linear-gradient(145deg,#3b3157,#806d9d); }
+  .weather-marker.hot { background:linear-gradient(145deg,#b74d27,#e1a039); }
+  .weather-marker.night { background:linear-gradient(145deg,#1a3155,#416995); }
+  .marker-icon { display:block; font-size:1.35rem; line-height:1.1; }
+  .marker-temp { display:block; font-size:.8rem; font-weight:800; line-height:1.1; }
+  .marker-name { display:block; max-width:56px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.58rem; }
+  .leaflet-popup-content { min-width:190px; margin:12px 14px; font-family:"Cairo",system-ui,sans-serif; direction:rtl; text-align:right; }
+  .popup-title { font-weight:800; font-size:1rem; }
+  .popup-weather { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:.9rem; }
+  .popup-weather b { font-size:1.55rem; }
+  .popup-meta { display:flex; flex-wrap:wrap; gap:6px; color:var(--muted); font-size:.75rem; }
+  .popup-link { display:inline-block; margin-top:8px; color:var(--cold); font-weight:700; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; margin:10px 2px; color:var(--muted); font-size:.78rem; }
+  .legend span { display:inline-flex; align-items:center; gap:4px; }
+  .city-section h2 { margin:24px 0 10px; font-size:1rem; color:var(--muted); }
+  .city-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+  .city-card { display:block; padding:12px; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--ink); text-decoration:none; transition:transform .18s ease, box-shadow .18s ease; }
+  .city-card:hover, .city-card:focus-visible { transform:translateY(-2px); box-shadow:0 8px 20px rgba(11,47,64,.12); }
+  .city-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
+  .city-name { font-weight:800; }
+  .city-country { display:block; color:var(--muted); font-size:.68rem; font-weight:400; }
+  .city-icon { font-size:1.8rem; line-height:1; }
+  .city-temp { margin-top:8px; font-size:1.65rem; font-weight:800; line-height:1; }
+  .city-condition { margin-top:6px; font-size:.78rem; font-weight:600; }
+  .city-meta { display:flex; flex-wrap:wrap; gap:7px; margin-top:3px; color:var(--muted); font-size:.68rem; }
+  .city-alert { display:inline-block; margin-top:6px; padding:1px 7px; border-radius:999px; color:#fff; background:#d62828; font-size:.65rem; }
+  .state { padding:18px; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--muted); }
+  footer { margin-top:25px; color:var(--muted); font-size:.78rem; }
+  footer p { margin:6px 0; }
+  @media (max-width:820px) { .city-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  @media (max-width:580px) { body { padding:14px 10px 36px; } .intro { align-items:flex-start; flex-direction:column; } .refresh { width:100%; } #map { min-height:420px; height:62vh; } .city-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; } .city-card { padding:10px; } }
 </style>
 </head>
 <body>
 <header>
   <a class="brand" href="/">
     <img src="/static/logo.svg" alt="" width="48" height="48">
-    <div><h1>خريطة الطقس والتنبيهات</h1><small>طقس بلاد الشام</small></div>
+    <div><h1>خريطة حالة الطقس</h1><small>طقس بلاد الشام · الأردن أولاً</small></div>
   </a>
   <a class="navlink" href="/">الصفحة الرئيسية</a>
 </header>
 
-<div id="map-ad" class="map-ad" aria-live="polite"><a href="/advertise">مساحة إعلانية متاحة على خريطة الطقس — أعلن معنا</a></div>
-<div class="controls" role="group" aria-label="طبقة الخريطة" id="layerBtns"></div>
-<div class="timebar">
-  <button id="playBtn" aria-label="تشغيل الشريط الزمني">تشغيل</button>
-  <input type="range" id="slider" min="0" max="0" value="0" aria-label="الوقت">
-  <span id="timeLabel"></span>
+<div id="map-ad" class="ad-slot" aria-live="polite"><a href="/advertise">مساحة إعلانية متاحة على خريطة الطقس — أعلن معنا</a></div>
+
+<section class="intro">
+  <div><strong>شاهد حالة كل مدينة بصرياً</strong><p>العلامات والألوان مبنية على توقعات المدينة الحالية، وليست راداراً مباشراً.</p></div>
+  <button class="refresh" id="refreshBtn" type="button">تحديث البيانات</button>
+</section>
+
+<div class="map-wrap"><div id="map" role="region" aria-label="خريطة حالة الطقس في مدن بلاد الشام"></div></div>
+<div class="legend" aria-label="دليل حالات الطقس">
+  <span>☀️ صحو</span><span>🌥️ غائم جزئياً</span><span>🌧️ ماطر</span><span>⛈️ عاصف</span><span>🌙 ليلي</span>
 </div>
+<div id="status" class="state" role="status">جارٍ تحميل حالة المدن…</div>
 
-<div id="map" role="region" aria-label="خريطة الطقس"></div>
-<div class="legend" id="legend"></div>
-<div id="status" role="status">جارٍ تحميل الخريطة…</div>
-
-<h2>التنبيهات النشطة</h2>
-<div class="list" id="alertList"><p class="muted">جارٍ تحميل تنبيهات المدن…</p></div>
+<section class="city-section" aria-labelledby="cityTitle">
+  <h2 id="cityTitle">الحالة الحالية في المدن</h2>
+  <div id="cityGrid" class="city-grid"><p class="state">جارٍ تحميل المدن…</p></div>
+</section>
 
 <footer>
-  <p>طبقات الطقس من خرائط WeatherAPI، بتحديثات توقعات كل ساعة للـ 3 أيام القادمة. هذه طبقات توقعات وليست صور رادار مباشر.</p>
-  <p>ألوان المدن تعبّر عن أشد تنبيه خلال 48 ساعة. التنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية.</p>
+  <p>تُعرض توقعات النماذج للمدن مع آخر تحديث متاح. هذه الخريطة لا تمثل صور رادار أو أقمار صناعية مباشرة.</p>
+  <p>التنبيهات آلية وتقديرية، وليست بديلاً عن التحذيرات الرسمية من دوائر الأرصاد والدفاع المدني.</p>
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-/* ---------- طبقات WeatherAPI الزمنية ---------- */
-const LAYERS = {
-  precip: { label: "الأمطار", path: "precip", unit: "توقعات الهطول" },
-  temp: { label: "الحرارة", path: "tmp2m", unit: "درجة الحرارة" },
-  wind: { label: "الرياح", path: "wind", unit: "سرعة الرياح" },
-  pressure: { label: "الضغط", path: "pressure", unit: "الضغط الجوي" }
-};
-const LEVEL_COLOR = { 0: "#3f8fa8", 1: "#e8b100", 2: "#ef7b00", 3: "#d62828" };
-
-/* ---------- الخريطة ---------- */
-const map = L.map("map", { zoomControl: true, minZoom: 5, maxZoom: 10 });
-map.fitBounds([[29.3, 34.2], [37.2, 40.8]]);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Weather maps: <a href="https://www.weatherapi.com/docs/weather-maps/">WeatherAPI.com</a>'
-}).addTo(map);
-
-let overlay = null, layerKey = "temp", timer = null;
-const slider = document.getElementById("slider");
-const timeLabel = document.getElementById("timeLabel");
-const legend = document.getElementById("legend");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+const map = L.map("map", { zoomControl:true, minZoom:5, maxZoom:11 });
+map.fitBounds([[29.3,34.2],[37.2,40.8]]);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+const markers = new Map();
 const statusEl = document.getElementById("status");
-const playBtn = document.getElementById("playBtn");
-const layerBtns = document.getElementById("layerBtns");
 
-function selectedUtcTime() {
-  const base = new Date();
-  base.setUTCMinutes(0, 0, 0);
-  return new Date(base.getTime() + Number(slider.value) * 3600000);
+function visual(c) {
+  const rain = (c.precip || 0) >= 0.2;
+  const cloud = c.cloud == null ? 50 : c.cloud;
+  const night = c.local_hour != null && (c.local_hour < 6 || c.local_hour >= 19);
+  if (rain && c.level >= 2) return { cls:"storm", icon:"⛈️", label:"أجواء ماطرة وعاصفة" };
+  if (rain) return { cls:"rain", icon:"🌧️", label:"أجواء ماطرة" };
+  if (cloud >= 85) return { cls:"cloudy", icon:"☁️", label:"غائم" };
+  if (cloud >= 45) return { cls:"cloudy", icon:"🌥️", label:"غائم جزئياً" };
+  if ((c.temp || 0) >= 32) return { cls:"hot", icon:night ? "🌙" : "☀️", label:"صحو وحار" };
+  return { cls:night ? "night" : "clear", icon:night ? "🌙" : "☀️", label:"صحو" };
 }
-function tileUrl(layer, date) {
-  const ymd = date.getUTCFullYear()
-    + String(date.getUTCMonth() + 1).padStart(2, "0")
-    + String(date.getUTCDate()).padStart(2, "0");
-  const hour = String(date.getUTCHours()).padStart(2, "0");
-  return "https://weathermaps.weatherapi.com/" + layer + "/tiles/" + ymd + hour + "/{z}/{x}/{y}.png";
+function markerHtml(c, v) {
+  return `<div class="weather-marker ${v.cls}" title="${esc(c.name)}: ${esc(v.label)}"><span class="marker-icon">${v.icon}</span><span class="marker-temp">${c.temp == null ? "–" : Math.round(c.temp)}°</span><span class="marker-name">${esc(c.name)}</span></div>`;
 }
-function updateTimeLabel(date) {
-  timeLabel.textContent = date.toLocaleString("ar-JO-u-nu-latn", {
-    weekday: "long", day: "numeric", month: "short",
-    hour: "numeric", minute: "2-digit", hour12: true, timeZone: "UTC"
-  }) + " UTC";
+function popupHtml(c, v) {
+  const alert = c.level ? `<div class="city-alert">تنبيه ${c.level === 3 ? "أحمر" : c.level === 2 ? "برتقالي" : "أصفر"}</div>` : "";
+  return `<div class="popup-title">${esc(c.name)}، ${esc(c.country)}</div><div class="popup-weather"><b>${v.icon}</b><span>${esc(c.condition || v.label)}<br><strong>${c.temp == null ? "–" : Math.round(c.temp)}°</strong></span></div><div class="popup-meta"><span>غيوم ${c.cloud == null ? "–" : Math.round(c.cloud)}%</span><span>مطر ${c.precip == null ? "–" : esc(c.precip)} ملم</span><span>رياح ${c.wind == null ? "–" : Math.round(c.wind)} كم/س</span></div>${alert}<a class="popup-link" href="/?city=${encodeURIComponent(c.slug)}">عرض التفاصيل والإشعارات</a>`;
 }
-function draw() {
-  const date = selectedUtcTime();
-  const layer = LAYERS[layerKey];
-  const url = tileUrl(layer.path, date);
-  if (!overlay) {
-    overlay = L.tileLayer(url, { opacity: 1, maxZoom: 10, updateWhenIdle: true, keepBuffer: 3, attribution: "WeatherAPI.com" }).addTo(map);
-  } else {
-    overlay.setUrl(url);
-  }
-  updateTimeLabel(date);
-  statusEl.textContent = "توقعات WeatherAPI · " + layer.label + " · ألوان الطبقة بوضوح كامل · تحديث كل ساعة";
+function render(cities) {
+  const grid = document.getElementById("cityGrid");
+  markers.forEach(m => map.removeLayer(m));
+  markers.clear();
+  cities.forEach(c => {
+    const v = visual(c);
+    const marker = L.marker([c.lat,c.lon], { icon:L.divIcon({ className:"", html:markerHtml(c,v), iconSize:[66,58], iconAnchor:[33,52], popupAnchor:[0,-45] }) }).addTo(map);
+    marker.bindPopup(popupHtml(c,v));
+    markers.set(c.slug, marker);
+  });
+  grid.innerHTML = cities.map(c => {
+    const v = visual(c);
+    const alert = c.level ? `<span class="city-alert">تنبيه ${c.level === 3 ? "أحمر" : c.level === 2 ? "برتقالي" : "أصفر"}</span>` : "";
+    return `<a class="city-card" href="/?city=${encodeURIComponent(c.slug)}" data-slug="${esc(c.slug)}"><div class="city-card-top"><div class="city-name">${esc(c.name)}<span class="city-country">${esc(c.country)}</span></div><div class="city-icon" aria-hidden="true">${v.icon}</div></div><div class="city-temp">${c.temp == null ? "–" : Math.round(c.temp)}°</div><div class="city-condition">${esc(c.condition || v.label)}</div><div class="city-meta"><span>غيوم ${c.cloud == null ? "–" : Math.round(c.cloud)}%</span><span>مطر ${c.precip == null ? "–" : esc(c.precip)} ملم</span><span>رياح ${c.wind == null ? "–" : Math.round(c.wind)} كم/س</span></div>${alert}</a>`;
+  }).join("");
+  grid.querySelectorAll("[data-slug]").forEach(card => card.addEventListener("click", e => { const m = markers.get(card.dataset.slug); if (m) { e.preventDefault(); map.flyTo(m.getLatLng(), 9); m.openPopup(); } }));
+  statusEl.textContent = `تم تحميل ${cities.length} مدينة. اضغط على أي علامة لمشاهدة التفاصيل.`;
 }
-function buildLegend() {
-  legend.textContent = LAYERS[layerKey].unit + " · خرائط توقعات WeatherAPI";
-}
-function setLayer(key) {
-  layerKey = key;
-  document.querySelectorAll("#layerBtns button").forEach(button =>
-    button.setAttribute("aria-pressed", button.dataset.k === key)
-  );
-  buildLegend();
-  draw();
-}
-layerBtns.innerHTML = Object.entries(LAYERS)
-  .map(([key, value]) => '<button data-k="' + key + '" aria-pressed="' + (key === layerKey) + '">' + esc(value.label) + '</button>')
-  .join("");
-layerBtns.addEventListener("click", event => {
-  const button = event.target.closest("button[data-k]");
-  if (button) setLayer(button.dataset.k);
-});
-slider.min = 0;
-slider.max = 71;
-slider.value = 0;
-slider.addEventListener("input", draw);
-playBtn.addEventListener("click", () => {
-  if (timer) {
-    clearInterval(timer); timer = null; playBtn.textContent = "تشغيل"; return;
-  }
-  playBtn.textContent = "إيقاف";
-  timer = setInterval(() => {
-    const next = Number(slider.value) + 1;
-    slider.value = next > Number(slider.max) ? slider.min : next;
-    draw();
-  }, 1000);
-});
-buildLegend();
-draw();
-/* ---------- المدن والتنبيهات ---------- */
-const markers = {};
-
-function popupHtml(c) {
-  const alerts = c.alerts.map(a =>
-    `<div class="pop-alert lvl${a.level}"><b>${esc(a.title)}</b> · ${esc(a.level_name)}<br><small>${esc(a.when)} · اتفاق ${a.agree_n} من ${a.total}</small></div>`).join("");
-  return `<b>${esc(c.name)}</b>، ${esc(c.country)}<br>
-    الحرارة ${c.temp == null ? "–" : Math.round(c.temp)}° · الارتفاع ${c.elev} م
-    ${alerts || '<div class="muted">لا تنبيهات</div>'}
-    <div style="margin-top:6px"><a href="/?city=${encodeURIComponent(c.slug)}">التفاصيل والإشعارات</a></div>`;
-}
-
 async function loadCities() {
-  const list = document.getElementById("alertList");
+  statusEl.textContent = "جارٍ تحديث حالة المدن…";
   try {
-    const res = await fetch("/api/overview");
-    if (!res.ok) throw new Error();
+    const res = await fetch("/api/overview", { cache:"no-store" });
     const cities = await res.json();
-
-    cities.forEach(c => {
-      const m = L.circleMarker([c.lat, c.lon], {
-        radius: 7 + c.level * 2, color: "#ffffff", weight: 2,
-        fillColor: LEVEL_COLOR[c.level], fillOpacity: 1
-      }).addTo(map).bindPopup(popupHtml(c)).bindTooltip(c.name, { direction: "top" });
-      markers[c.slug] = m;
-    });
-
-    const items = [];
-    cities.forEach(c => c.alerts.forEach(a => items.push({ c, a })));
-    items.sort((x, y) => y.a.level - x.a.level || x.a.lead_hours - y.a.lead_hours);
-
-    list.innerHTML = items.length
-      ? items.slice(0, 14).map((it, i) =>
-          `<button class="item lvl${it.a.level}" data-slug="${esc(it.c.slug)}">
-             <span><b>${esc(it.a.title)}</b> · ${esc(it.c.name)}<small>${esc(it.a.when)} · اتفاق ${it.a.agree_n} من ${it.a.total} نماذج</small></span>
-             <span>${esc(it.a.level_name)}</span></button>`).join("")
-      : `<p class="muted">لا توجد تنبيهات نشطة في أي مدينة خلال 48 ساعة.</p>`;
-
-    list.onclick = e => {
-      const b = e.target.closest("button[data-slug]");
-      if (!b || !markers[b.dataset.slug]) return;
-      const m = markers[b.dataset.slug];
-      map.flyTo(m.getLatLng(), 9);
-      m.openPopup();
-      document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
-    };
+    if (!res.ok || !Array.isArray(cities) || !cities.length) throw new Error("تعذّر تحميل حالة المدن الآن");
+    render(cities);
   } catch (e) {
-    list.innerHTML = `<p class="muted">تعذّر تحميل تنبيهات المدن الآن.</p>`;
+    statusEl.textContent = e.message || "تعذّر تحميل حالة المدن الآن";
+    document.getElementById("cityGrid").innerHTML = `<p class="state">${esc(e.message || "تعذّر تحميل المدن")}</p>`;
   }
 }
-
+document.getElementById("refreshBtn").addEventListener("click", loadCities);
 loadCities();
 </script>
 <script src="/static/ads.js"></script><script>window.loadWeatherAd && window.loadWeatherAd("map-ad","map_top");</script>
