@@ -28,6 +28,14 @@
   .refresh { white-space:nowrap; background:var(--cold); color:#fff; border-color:transparent; }
   .ad-slot { margin:12px 0; padding:10px; text-align:center; border:1px dashed var(--line); border-radius:14px; background:var(--surface); font-size:.8rem; }
   .ad-slot a { color:var(--cold); font-weight:700; text-decoration:none; }
+  .layers { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0; padding:10px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+  .layers strong { font-size:.82rem; margin-inline-end:2px; }
+  .layer-btn { padding:6px 10px; font-size:.78rem; }
+  .layer-btn.active { background:var(--cold); border-color:var(--cold); color:#fff; }
+  .timeline { display:none; align-items:center; gap:8px; flex:1 1 250px; min-width:230px; color:var(--muted); font-size:.72rem; }
+  .timeline.visible { display:flex; }
+  .timeline input { width:100%; accent-color:var(--cold); }
+  .source-note { width:100%; color:var(--muted); font-size:.68rem; }
   .map-wrap { position:relative; }
   #map { height:min(68vh,650px); min-height:430px; border:1px solid var(--line); border-radius:20px; background:var(--surface); overflow:hidden; }
   .weather-marker { width:66px; min-height:58px; padding:4px 5px; border:2px solid #fff; border-radius:18px; color:#fff; text-align:center; box-shadow:0 5px 14px rgba(11,47,64,.28); transform:translateY(-7px); }
@@ -83,6 +91,15 @@
   <button class="refresh" id="refreshBtn" type="button">تحديث البيانات</button>
 </section>
 
+<section class="layers" aria-label="طبقات الطقس الحية">
+  <strong>طبقات الخريطة:</strong>
+  <button class="layer-btn" id="radarBtn" type="button">رادار المطر</button>
+  <button class="layer-btn" id="satelliteBtn" type="button">صور السحب</button>
+  <button class="layer-btn" id="playBtn" type="button" hidden>تشغيل الحركة</button>
+  <label class="timeline" id="timeline"><span id="radarTime">آخر إطار</span><input id="radarRange" type="range" min="0" max="0" value="0" step="1" aria-label="الإطار الزمني للرادار"><span>الأحدث</span></label>
+  <div class="source-note" id="layerStatus">الرادار والصور الفضائية اختياريان. الرادار يعرض الهطول المتاح، وصور السحب لا تعني بالضرورة وجود مطر.</div>
+</section>
+
 <div class="map-wrap"><div id="map" role="region" aria-label="خريطة حالة الطقس في مدن بلاد الشام"></div></div>
 <div class="legend" aria-label="دليل حالات الطقس">
   <span>☀️ صحو</span><span>🌥️ غائم جزئياً</span><span>🌧️ ماطر</span><span>⛈️ عاصف</span><span>🌙 ليلي</span>
@@ -105,6 +122,67 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const map = L.map("map", { zoomControl:true, minZoom:5, maxZoom:11 });
 map.fitBounds([[29.3,34.2],[37.2,40.8]]);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+const radarBtn = document.getElementById("radarBtn");
+const satelliteBtn = document.getElementById("satelliteBtn");
+const playBtn = document.getElementById("playBtn");
+const timeline = document.getElementById("timeline");
+const radarRange = document.getElementById("radarRange");
+const radarTime = document.getElementById("radarTime");
+const layerStatus = document.getElementById("layerStatus");
+const EUMETSAT_WMS = "https://view.eumetsat.int/geoserver/wms";
+let radarLayer = null, satelliteLayer = null, radarFrames = [], radarHost = "", radarIndex = 0, radarTimer = null;
+
+function formatFrameTime(unix) {
+  return new Intl.DateTimeFormat("ar-JO", { hour:"2-digit", minute:"2-digit", day:"2-digit", month:"2-digit", timeZone:"Asia/Amman" }).format(new Date(unix * 1000));
+}
+function setRadarFrame(index) {
+  if (!radarFrames.length) return;
+  radarIndex = Math.max(0, Math.min(Number(index), radarFrames.length - 1));
+  const frame = radarFrames[radarIndex];
+  const url = `${radarHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+  if (radarLayer) map.removeLayer(radarLayer);
+  radarLayer = L.tileLayer(url, { opacity:.68, maxZoom:7, maxNativeZoom:7, tileSize:256, attribution:'Weather data by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>' });
+  radarLayer.addTo(map);
+  radarRange.value = radarIndex;
+  radarTime.textContent = formatFrameTime(frame.time);
+}
+async function toggleRadar() {
+  if (radarLayer) {
+    map.removeLayer(radarLayer); radarLayer = null; radarBtn.classList.remove("active"); timeline.classList.remove("visible"); playBtn.hidden = true;
+    if (radarTimer) { clearInterval(radarTimer); radarTimer = null; }
+    layerStatus.textContent = "تم إخفاء رادار المطر.";
+    return;
+  }
+  radarBtn.disabled = true; layerStatus.textContent = "جارٍ جلب آخر إطارات رادار المطر…";
+  try {
+    const res = await fetch("https://api.rainviewer.com/public/weather-maps.json", { cache:"no-store" });
+    const data = await res.json();
+    radarFrames = (data.radar && data.radar.past) || [];
+    radarHost = data.host || "https://tilecache.rainviewer.com";
+    if (!radarFrames.length) throw new Error("لا تتوفر إطارات رادار حالياً لمنطقة الخريطة");
+    radarRange.max = radarFrames.length - 1; radarRange.value = radarFrames.length - 1; radarIndex = radarFrames.length - 1;
+    setRadarFrame(radarIndex); radarBtn.classList.add("active"); timeline.classList.add("visible"); playBtn.hidden = false;
+    layerStatus.textContent = `رادار RainViewer: ${radarFrames.length} إطاراً متاحاً. قد تختلف التغطية حسب المنطقة.`;
+  } catch (e) {
+    layerStatus.textContent = e.message || "تعذّر تحميل رادار المطر الآن.";
+  } finally { radarBtn.disabled = false; }
+}
+function toggleSatellite() {
+  if (satelliteLayer) {
+    map.removeLayer(satelliteLayer); satelliteLayer = null; satelliteBtn.classList.remove("active"); layerStatus.textContent = "تم إخفاء صور السحب."; return;
+  }
+  satelliteLayer = L.tileLayer.wms(EUMETSAT_WMS, { layers:"msg_fes_ir108", styles:"", format:"image/png", transparent:true, opacity:.52, version:"1.3.0", attribution:'Satellite imagery by <a href="https://www.eumetsat.int/" target="_blank" rel="noopener">EUMETSAT</a>' }).addTo(map);
+  satelliteBtn.classList.add("active");
+  layerStatus.textContent = "صور السحب من EUMETSAT (أشعة تحت حمراء). قد تتأخر الصورة حسب تحديث المصدر.";
+}
+radarBtn.addEventListener("click", toggleRadar);
+satelliteBtn.addEventListener("click", toggleSatellite);
+radarRange.addEventListener("input", e => setRadarFrame(e.target.value));
+playBtn.addEventListener("click", () => {
+  if (radarTimer) { clearInterval(radarTimer); radarTimer = null; playBtn.textContent = "تشغيل الحركة"; return; }
+  playBtn.textContent = "إيقاف الحركة";
+  radarTimer = setInterval(() => { const next = radarIndex >= radarFrames.length - 1 ? 0 : radarIndex + 1; setRadarFrame(next); }, 900);
+});
 const markers = new Map();
 const statusEl = document.getElementById("status");
 
