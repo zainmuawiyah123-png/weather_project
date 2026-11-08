@@ -8,9 +8,12 @@ impression/click tracking, revenue reporting, ads.txt and network codes.
 - الحملة (campaign): لمعلن، لها مكان (placement) وصيغة (format) وجدولة (بداية/نهاية)
   وميزانية وسعر (CPM أو CPC أو مبلغ ثابت) وأولوية.
 - الإبداع (creative): بانر صورة أو إعلان نصي أو رعاية موسمية.
-- الظهور/النقرة: تُسجَّل لكل حملة وإبداع ومكان.
-- الإيراد: يُحسب من السعر: CPM = ظهور/1000 × السعر، CPC = نقرات × السعر،
-  ثابت = السعر موزّعاً على أيام الحملة الفعلية.
+- الظهور: يُحتسب على الخادم لحظة تقديم الإعلان لمتصفح (بعد موافقة الزائر)، لا بطلب يرسله العميل.
+- النقرة: تمرّ عبر رابط يحمل رمزاً موقَّعاً من الخادم؛ وجهة الإعلان تُقرأ من قاعدة البيانات لا من الرابط.
+- الحماية من التضخيم: حدّ أقصى للظهور والنقرات لكل زائر ولكل حملة في اليوم (بصمة مجهولة تتغير يومياً).
+  هذا يقلل التزوير ولا يلغيه، فعامل الأرقام كتقدير وراجعها قبل محاسبة المعلنين.
+- الإيراد: CPM = ظهور/1000 × السعر، CPC = نقرات × السعر،
+  ثابت = السعر موزّعاً بالتساوي على أيام الحملة ويُحتسب ما انقضى منها فقط.
 
 الأماكن القياسية (مقاسات IAB):
   home_top      728×90   لوحة قيادة (Leaderboard)
@@ -29,6 +32,7 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
 import config
+import security
 
 log = logging.getLogger("levant-weather.ads")
 
@@ -102,12 +106,12 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS impressions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 campaign_id INTEGER, creative_id INTEGER, placement TEXT,
-                ts TEXT, day TEXT, page TEXT
+                ts TEXT, day TEXT, page TEXT, vhash TEXT
             );
             CREATE TABLE IF NOT EXISTS clicks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 campaign_id INTEGER, creative_id INTEGER, placement TEXT,
-                ts TEXT, day TEXT, page TEXT
+                ts TEXT, day TEXT, page TEXT, vhash TEXT
             );
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +123,13 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_clk_day ON clicks(day, campaign_id);
             """
         )
+        # ترقية قواعد البيانات القديمة: عمود بصمة الزائر
+        for table in ("impressions", "clicks"):
+            cols = [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
+            if "vhash" not in cols:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN vhash TEXT")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_imp_v ON impressions(campaign_id, day, vhash)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_clk_v ON clicks(campaign_id, day, vhash)")
     _initialized = True
 
 
@@ -171,6 +182,7 @@ def list_advertisers() -> list[dict]:
 # ---------- الحملات ----------
 def create_campaign(data: dict) -> int:
     init_db()
+    data = {**data, "target_url": security.validate_http_url(data.get("target_url", ""))}
     with _db() as db:
         cur = db.execute(
             """INSERT INTO campaigns
@@ -193,6 +205,8 @@ def update_campaign(cid: int, data: dict) -> bool:
     init_db()
     fields = ["advertiser_id", "name", "placement", "format", "start_date", "end_date",
               "status", "priority", "pricing", "rate", "budget", "daily_cap", "target_url"]
+    if "target_url" in data:
+        data = {**data, "target_url": security.validate_http_url(data["target_url"])}
     sets, vals = [], []
     for f in fields:
         if f in data:
@@ -247,6 +261,11 @@ def get_campaign(cid: int) -> dict | None:
 # ---------- الإبداعات ----------
 def add_creative(campaign_id: int, data: dict) -> int:
     init_db()
+    data = {
+        **data,
+        "target_url": security.validate_http_url(data.get("target_url", "")),
+        "image_url": security.validate_http_url(data.get("image_url", "")),
+    }
     with _db() as db:
         cur = db.execute(
             """INSERT INTO creatives
@@ -293,9 +312,9 @@ def _impressions_today(campaign_id: int, today: str) -> int:
         ).fetchone()[0]
 
 
-def serve(placement: str, page: str = "") -> dict | None:
+def pick(placement: str) -> dict | None:
     """
-    يختار إعلاناً للمكان المطلوب. يعيد dict أو None.
+    يختار إعلاناً للمكان المطلوب دون أي تسجيل (آمن للاستدعاء عند رسم الصفحة). يعيد dict أو None.
     - يحترم الجدولة (بداية/نهاية) والحالة والحد اليومي.
     - يوزّع بالتناوب بين الحملات المؤهلة (rotation) حسب الأولوية.
     - إن لم توجد حملة، يعيد إعلان البيت (self-promo) حتى لا يبقى المكان فارغاً.
@@ -336,6 +355,24 @@ def serve(placement: str, page: str = "") -> dict | None:
     }
 
 
+def serve(placement: str, page: str = "", vhash: str = "") -> dict | None:
+    """
+    يقدّم إعلاناً لزائر: يختاره، ويحتسب الظهور على الخادم (ضمن حد الزائر)، ويرفق رابط نقرة موقَّعاً.
+    وجهة الإعلان لا تُرسل للمتصفح؛ يتبع رابط النقرة فقط (يُحمّل الوجهة من قاعدة البيانات).
+    """
+    ad = pick(placement)
+    if ad is None:
+        return None
+    if ad["campaign_id"]:
+        record_impression(ad["campaign_id"], ad["creative_id"], placement, page, vhash)
+        token = security.sign_ad_token(ad["campaign_id"], ad["creative_id"], placement)
+        ad["click_url"] = "/api/ads/click?t=" + token
+        ad.pop("target_url", None)
+    else:
+        ad["click_url"] = "/advertise"
+    return ad
+
+
 def house_ad(placement: str) -> dict:
     """إعلان البيت: دعوة للإعلان معنا. يظهر حين لا توجد حملة نشطة."""
     return {
@@ -356,60 +393,132 @@ def house_ad(placement: str) -> dict:
 
 
 # ---------- التتبع ----------
-def record_impression(campaign_id: int, creative_id: int, placement: str, page: str = "") -> None:
-    if not campaign_id:
-        return
-    init_db()
-    with _db() as db:
-        db.execute(
-            "INSERT INTO impressions (campaign_id,creative_id,placement,ts,day,page) VALUES (?,?,?,?,?,?)",
-            (campaign_id, creative_id, placement, _now(), _today(), page[:200]),
-        )
+def _valid_pair(db, campaign_id: int, creative_id: int) -> bool:
+    """الحملة موجودة، والإبداع (إن ذُكر) يتبع هذه الحملة."""
+    if not db.execute("SELECT 1 FROM campaigns WHERE id=?", (campaign_id,)).fetchone():
+        return False
+    if creative_id and not db.execute(
+        "SELECT 1 FROM creatives WHERE id=? AND campaign_id=?", (creative_id, campaign_id)
+    ).fetchone():
+        return False
+    return True
 
 
-def record_click(campaign_id: int, creative_id: int, placement: str, page: str = "") -> None:
-    if not campaign_id:
-        return
+def _record(table: str, cap: int, campaign_id: int, creative_id: int, placement: str,
+            page: str, vhash: str) -> bool:
+    if not campaign_id or placement not in PLACEMENTS:
+        return False
+    init_db()
+    today = _today()
+    with _db() as db:
+        if not _valid_pair(db, campaign_id, creative_id):
+            return False
+        if vhash and cap > 0:
+            n = db.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE campaign_id=? AND day=? AND vhash=?",
+                (campaign_id, today, vhash),
+            ).fetchone()[0]
+            if n >= cap:
+                return False
+        db.execute(
+            f"INSERT INTO {table} (campaign_id,creative_id,placement,ts,day,page,vhash) VALUES (?,?,?,?,?,?,?)",
+            (campaign_id, creative_id, placement, _now(), today, page[:200], vhash or None),
+        )
+    return True
+
+
+def record_impression(campaign_id: int, creative_id: int, placement: str, page: str = "",
+                      vhash: str = "") -> bool:
+    """يسجّل ظهوراً إن كانت الحملة والإبداع حقيقيين ولم يتجاوز الزائر حدّه اليومي."""
+    return _record("impressions", config.AD_IMPRESSION_CAP, campaign_id, creative_id, placement, page, vhash)
+
+
+def record_click(campaign_id: int, creative_id: int, placement: str, page: str = "",
+                 vhash: str = "") -> bool:
+    return _record("clicks", config.AD_CLICK_CAP, campaign_id, creative_id, placement, page, vhash)
+
+
+def click_target(campaign_id: int, creative_id: int) -> str | None:
+    """وجهة النقرة من قاعدة البيانات فقط (لا من الرابط). None إن لم تُوجد أو كانت غير صالحة."""
     init_db()
     with _db() as db:
-        db.execute(
-            "INSERT INTO clicks (campaign_id,creative_id,placement,ts,day,page) VALUES (?,?,?,?,?,?)",
-            (campaign_id, creative_id, placement, _now(), _today(), page[:200]),
-        )
+        row = db.execute(
+            """SELECT cr.target_url, c.target_url
+               FROM creatives cr JOIN campaigns c ON c.id = cr.campaign_id
+               WHERE cr.id=? AND c.id=?""",
+            (creative_id, campaign_id),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return security.validate_http_url(row[0] or row[1] or "") or None
+    except ValueError:
+        return None
 
 
 # ---------- الإيراد ----------
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _flat_earned(c: dict, since: date | None = None) -> float:
+    """
+    إيراد الحملة بسعر ثابت: السعر موزّع بالتساوي على أيامها، ويُحتسب منه ما انقضى فقط.
+    since: إن حُدّد، نحتسب الأيام من هذا التاريخ فصاعداً (نافذة التقرير).
+    حملة بلا تاريخَي بداية ونهاية صالحَين تُعامَل كمبلغ مقطوع يُحتسب كاملاً في الإجمالي،
+    وفي النافذة إن أُنشئت ضمنها.
+    """
+    rate = float(c.get("rate") or 0)
+    try:
+        start = date.fromisoformat(c.get("start_date") or "")
+        end = date.fromisoformat(c.get("end_date") or "")
+    except ValueError:
+        if since is None:
+            return rate
+        created = (c.get("created") or "")[:10]
+        return rate if created and created >= since.isoformat() else 0.0
+    total_days = max((end - start).days + 1, 1)
+    lo = max(start, since) if since else start
+    hi = min(end, _utc_today())
+    elapsed = max((hi - lo).days + 1, 0)
+    return rate * min(elapsed, total_days) / total_days
+
+
 def campaign_revenue(c: dict, days: int | None = None) -> float:
     """
-    إيراد الحملة بالدينار الأردني.
-    cpm: ظهور/1000 × السعر. cpc: نقرات × السعر. flat: السعر موزّعاً على أيام الحملة.
+    إيراد الحملة بالدينار الأردني (الإجمالي، أو آخر days يوماً).
+    cpm: ظهور/1000 × السعر. cpc: نقرات × السعر. flat: ما انقضى من السعر الموزّع على أيام الحملة.
     """
     init_db()
     pricing = (c.get("pricing") or "cpm").lower()
     rate = float(c.get("rate") or 0)
+    since = (_utc_today() - timedelta(days=days)) if days else None
+    if pricing == "flat":
+        return round(_flat_earned(c, since), 2)
     with _db() as db:
-        if days:
-            since = (date.today() - timedelta(days=days)).isoformat()
+        if since:
             imp = db.execute(
                 "SELECT COUNT(*) FROM impressions WHERE campaign_id=? AND day>=?",
-                (c["id"], since)).fetchone()[0]
+                (c["id"], since.isoformat())).fetchone()[0]
             clk = db.execute(
                 "SELECT COUNT(*) FROM clicks WHERE campaign_id=? AND day>=?",
-                (c["id"], since)).fetchone()[0]
+                (c["id"], since.isoformat())).fetchone()[0]
         else:
             imp = db.execute("SELECT COUNT(*) FROM impressions WHERE campaign_id=?", (c["id"],)).fetchone()[0]
             clk = db.execute("SELECT COUNT(*) FROM clicks WHERE campaign_id=?", (c["id"],)).fetchone()[0]
     if pricing == "cpc":
         return round(clk * rate, 2)
-    if pricing == "flat":
-        return round(rate, 2)
     return round(imp / 1000.0 * rate, 2)
 
 
 def report(days: int = 30) -> dict:
-    """تقرير إيرادات: إجمالي، يومي، شهري، ولكل حملة."""
+    """
+    تقرير إيرادات. المجاميع (totals) تخص آخر `days` يوماً فقط؛ أما جدول الحملات فيعرض
+    الإجمالي منذ البداية في الظهور والنقرات والإيراد، وبجانبه revenue_window لنافذة التقرير.
+    """
     init_db()
-    since = (date.today() - timedelta(days=days)).isoformat()
+    today = _utc_today()
+    since = (today - timedelta(days=days)).isoformat()
     with _db() as db:
         daily_imp = dict(db.execute(
             "SELECT day, COUNT(*) FROM impressions WHERE day>=? GROUP BY day", (since,)).fetchall())
@@ -421,13 +530,15 @@ def report(days: int = 30) -> dict:
             "SELECT substr(day,1,7), COUNT(*) FROM clicks GROUP BY substr(day,1,7)").fetchall())
 
     campaigns = list_campaigns()
-    total_rev = round(sum(c["revenue"] for c in campaigns), 2)
-    total_imp = sum(c["impressions"] for c in campaigns)
-    total_clk = sum(c["clicks"] for c in campaigns)
+    for c in campaigns:
+        c["revenue_window"] = campaign_revenue(c, days)
+    total_rev = round(sum(c["revenue_window"] for c in campaigns), 2)
+    total_imp = sum(daily_imp.values())
+    total_clk = sum(daily_clk.values())
 
     days_list = []
     for i in range(days, -1, -1):
-        d = (date.today() - timedelta(days=i)).isoformat()
+        d = (today - timedelta(days=i)).isoformat()
         imp = daily_imp.get(d, 0)
         clk = daily_clk.get(d, 0)
         days_list.append({"day": d, "impressions": imp, "clicks": clk,
@@ -462,13 +573,14 @@ def report_csv(days: int = 30) -> str:
     for d in r["daily"]:
         w.writerow([d["day"], d["impressions"], d["clicks"], d["ctr"]])
     w.writerow([])
-    w.writerow(["الحملة", "المعلن", "المكان", "الظهور", "النقرات", "نسبة النقر %", "الإيراد (د.أ)"])
+    w.writerow(["الحملة", "المعلن", "المكان", "الظهور (إجمالي)", "النقرات (إجمالي)", "نسبة النقر %",
+                "الإيراد الإجمالي (د.أ)", f"إيراد آخر {r['days']} يوماً (د.أ)"])
     for c in r["campaigns"]:
         w.writerow([c["name"], c.get("advertiser_name") or "", c["placement"],
-                    c["impressions"], c["clicks"], c["ctr"], c["revenue"]])
+                    c["impressions"], c["clicks"], c["ctr"], c["revenue"], c["revenue_window"]])
     w.writerow([])
-    w.writerow(["الإجمالي", "", "", r["totals"]["impressions"], r["totals"]["clicks"],
-                r["totals"]["ctr"], r["totals"]["revenue_jod"]])
+    w.writerow([f"إجمالي آخر {r['days']} يوماً", "", "", r["totals"]["impressions"], r["totals"]["clicks"],
+                r["totals"]["ctr"], "", r["totals"]["revenue_jod"]])
     return buf.getvalue()
 
 
@@ -516,8 +628,37 @@ def ads_txt() -> str:
 
 
 # ---------- بيانات أولية للعرض ----------
+DEMO_EMAIL = "ads@ufuq.jo"   # توقيع المعلن التجريبي؛ لا يستخدمه أي معلن حقيقي
+
+
+def purge_demo() -> int:
+    """
+    يحذف حملات المعلن التجريبي ("شركة الأفق للاتصالات") وإبداعاتها وإحصاءاتها.
+    كانت هذه الحملات تُنشأ تلقائياً عند أول تشغيل على قاعدة جديدة فتظهر للزوار وتدخل في الإيراد.
+    يعيد عدد الحملات المحذوفة.
+    """
+    init_db()
+    with _db() as db:
+        adv = [r[0] for r in db.execute("SELECT id FROM advertisers WHERE email=?", (DEMO_EMAIL,))]
+        if not adv:
+            return 0
+        qa = ",".join("?" * len(adv))
+        cids = [r[0] for r in db.execute(f"SELECT id FROM campaigns WHERE advertiser_id IN ({qa})", adv)]
+        if cids:
+            qc = ",".join("?" * len(cids))
+            for table in ("creatives", "impressions", "clicks"):
+                col = "campaign_id"
+                db.execute(f"DELETE FROM {table} WHERE {col} IN ({qc})", cids)
+            db.execute(f"DELETE FROM campaigns WHERE id IN ({qc})", cids)
+        db.execute(f"DELETE FROM advertisers WHERE id IN ({qa})", adv)
+    return len(cids)
+
+
 def seed_demo() -> None:
-    """ينشئ حملات تجريبية حتى تظهر الإعلانات فوراً في المعاينة."""
+    """
+    ينشئ حملات تجريبية للمعاينة المحلية فقط (SEED_DEMO=1). لا تستدعها على موقع حقيقي:
+    فيها راعٍ وهمي وروابط example.com وإيراد ثابت وهمي.
+    """
     init_db()
     with _db() as db:
         if db.execute("SELECT COUNT(*) FROM campaigns").fetchone()[0]:

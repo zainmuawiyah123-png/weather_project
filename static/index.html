@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/ads.css">
 <style>
   :root {
     --bg: #e8f1f2;
@@ -125,35 +126,6 @@
   .acc .tile span { font-size: .78rem; color: var(--muted); }
   .acc .note { grid-column: 1 / -1; }
   footer a { color: var(--cold); }
-
-  .ad-slot { display:block; margin:14px 0; padding:16px; text-align:center; border:1px dashed var(--cold); border-radius:14px; background:var(--surface); color:var(--muted); text-decoration:none; }
-  .ad-slot strong { display:block; color:var(--ink); font-size:.95rem; }
-  .ad-slot span { display:block; font-size:.78rem; margin-top:3px; }
-
-  .cities-section { margin: 22px 0 8px; }
-  .cities-head { display:flex; justify-content:space-between; align-items:end; gap:10px; margin-bottom:10px; }
-  .cities-head h2 { margin:0; }
-  .city-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
-  .city-card { position:relative; overflow:hidden; min-height:142px; padding:14px; border:1px solid rgba(255,255,255,.35); border-radius:18px; color:#fff; text-decoration:none; box-shadow:0 8px 22px rgba(11,47,64,.10); transition:transform .18s ease, box-shadow .18s ease; }
-  .city-card:hover, .city-card:focus-visible { transform:translateY(-2px); box-shadow:0 12px 28px rgba(11,47,64,.18); }
-  .city-card::after { content:""; position:absolute; inset:auto -12px -32px -12px; height:74px; background:radial-gradient(ellipse at center, rgba(255,255,255,.22), transparent 68%); pointer-events:none; }
-  .city-card.clear { background:linear-gradient(145deg,#177aa0,#55c6d1); }
-  .city-card.cloudy { background:linear-gradient(145deg,#496c86,#8caab5); }
-  .city-card.rain { background:linear-gradient(145deg,#263b58,#5b7396); }
-  .city-card.storm { background:linear-gradient(145deg,#342d4f,#75678d); }
-  .city-card.hot { background:linear-gradient(145deg,#b84c25,#e39a35); }
-  .city-card.night { background:linear-gradient(145deg,#172b4d,#385d83); }
-  .city-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; position:relative; z-index:1; }
-  .city-card-name { font-weight:800; font-size:1rem; }
-  .city-card-country { display:block; opacity:.78; font-size:.72rem; font-weight:400; }
-  .weather-art { width:48px; height:42px; display:grid; place-items:center; font-size:2rem; filter:drop-shadow(0 3px 2px rgba(0,0,0,.14)); }
-  .city-card-temp { position:relative; z-index:1; margin-top:8px; font-size:2rem; line-height:1; font-weight:800; }
-  .city-card-condition { position:relative; z-index:1; margin-top:7px; font-size:.82rem; font-weight:600; }
-  .city-card-meta { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; opacity:.86; font-size:.7rem; }
-  .city-card-alert { position:relative; z-index:1; display:inline-block; margin-top:7px; padding:1px 7px; border-radius:999px; background:rgba(255,255,255,.22); font-size:.68rem; }
-  .cities-loading, .cities-error { padding:16px; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--muted); }
-  @media (max-width: 520px) { .city-grid { grid-template-columns:1fr; } .city-card { min-height:128px; } }
-
   .box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
   .box p { margin: 0; }
   .box .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -163,14 +135,13 @@
   footer { margin-top: 28px; color: var(--muted); font-size: .8rem; }
   footer p { margin: 6px 0; }
   .err { background: var(--a1-bg); color: var(--alert-ink); padding: 14px; border-radius: 8px; }
-  .ad-label{display:inline-block;font-size:.72rem;background:#e8b100;color:#2b2000;padding:1px 8px;border-radius:20px;margin-bottom:5px}.ad-creative{display:block;color:inherit;text-decoration:none}.ad-creative img{max-width:100%;max-height:110px;object-fit:contain}
 </style>
 </head>
 <body>
 <header>
   <div class="brand">
     <img src="/static/logo.svg" alt="" width="48" height="48">
-    <div><h1>طقس بلاد الشام</h1><small>الأردن أولاً، مع تغطية مدن بلاد الشام</small></div>
+    <div><h1>طقس بلاد الشام</h1><small>توقع واحد من ثلاثة نماذج، لأربعة بلدان</small></div>
   </div>
   <div class="tools">
     <a class="navlink" href="/map">الخريطة</a>
@@ -178,16 +149,9 @@
   </div>
 </header>
 
-<div id="home-ad" class="ad-slot" aria-live="polite"><a href="/advertise"><strong>مساحة إعلانية متاحة</strong><span>أعلن معنا في طقس بلاد الشام</span></a></div>
-
-<section class="cities-section" aria-labelledby="citiesTitle">
-  <div class="cities-head"><h2 id="citiesTitle">حالة الطقس الآن في المدن</h2><span class="muted">تتحدث تلقائياً</span></div>
-  <div id="cityGrid" class="city-grid" aria-live="polite"><p class="cities-loading">جارٍ تحميل حالة المدن…</p></div>
-</section>
-
 <main id="view" aria-live="polite"><p class="hero">جارٍ التحميل…</p></main>
 
-<footer id="foot"><p><a href="/advertise">أعلن معنا · احجز مساحة إعلانية</a></p></footer>
+<footer id="foot"></footer>
 
 <script>
 const fmtDay = d => new Date(d + "T12:00").toLocaleDateString("ar-JO-u-nu-latn", { weekday: "long" });
@@ -203,10 +167,7 @@ const view = document.getElementById("view");
 const foot = document.getElementById("foot");
 
 async function loadCities() {
-  const citiesRes = await fetch("/api/cities", { cache: "no-store" });
-  if (!citiesRes.ok) throw new Error("تعذّر تحميل قائمة المدن");
-  const cities = await citiesRes.json();
-  if (!Array.isArray(cities) || !cities.length) throw new Error("قائمة المدن غير متاحة");
+  const cities = await (await fetch("/api/cities")).json();
   const groups = {};
   cities.forEach(c => (groups[c.country] ||= []).push(c));
   citySel.innerHTML = Object.entries(groups).map(([country, list]) =>
@@ -224,70 +185,11 @@ async function loadWeather() {
   try { localStorage.setItem("city", slug); } catch (e) {}
   view.innerHTML = `<p class="hero">جارٍ التحميل…</p>`;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    try {
-      const res = await fetch(`/api/weather/${encodeURIComponent(slug)}`, {
-        cache: "no-store", signal: controller.signal
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "تعذّر تحميل بيانات الطقس");
-      if (!data || !data.city || !Array.isArray(data.hours) ||
-          !Array.isArray(data.days) || !Array.isArray(data.alerts) ||
-          !data.days.length) {
-        throw new Error("وصلت بيانات الطقس، لكن تنسيقها غير مكتمل. سنعيد المحاولة لاحقاً.");
-      }
-      render(data);
-    } finally {
-      clearTimeout(timeout);
-    }
+    const res = await fetch(`/api/weather/${slug}`);
+    if (!res.ok) throw new Error((await res.json()).detail || "خطأ");
+    render(await res.json());
   } catch (e) {
-    const message = e.name === "AbortError"
-      ? "تأخر وصول بيانات الطقس أكثر من 30 ثانية. اضغط إعادة المحاولة."
-      : (e.message || "تعذّر عرض بيانات الطقس");
-    view.innerHTML = `<div class="err"><p>${esc(message)}</p><button class="btn" type="button" id="retryWeather">إعادة المحاولة</button></div>`;
-    const retry = document.getElementById("retryWeather");
-    if (retry) retry.onclick = loadWeather;
-  }
-}
-
-function cityVisual(c) {
-  const rain = (c.precip || 0) >= 0.2;
-  const storm = c.level >= 2;
-  const cloud = c.cloud == null ? 50 : c.cloud;
-  const night = c.local_hour != null && (c.local_hour < 6 || c.local_hour >= 19);
-  if (rain && storm) return { cls: "storm", icon: "⛈️", label: "أجواء ماطرة وعاصفة" };
-  if (rain) return { cls: "rain", icon: "🌧️", label: "أجواء ماطرة" };
-  if (cloud >= 85) return { cls: "cloudy", icon: "☁️", label: "غائم" };
-  if (cloud >= 45) return { cls: "cloudy", icon: "🌥️", label: "غائم جزئياً" };
-  if ((c.temp || 0) >= 32) return { cls: "hot", icon: night ? "🌙" : "☀️", label: "صحو وحار" };
-  return { cls: night ? "night" : "clear", icon: night ? "🌙" : "☀️", label: "صحو" };
-}
-
-function renderCityCards(cities) {
-  const grid = document.getElementById("cityGrid");
-  grid.innerHTML = cities.map(c => {
-    const v = cityVisual(c);
-    const alert = c.level ? `<span class="city-card-alert">تنبيه ${c.level === 3 ? "أحمر" : c.level === 2 ? "برتقالي" : "أصفر"}</span>` : "";
-    return `<a class="city-card ${v.cls}" href="/?city=${encodeURIComponent(c.slug)}" aria-label="${esc(c.name)}: ${esc(v.label)}">
-      <div class="city-card-top"><div class="city-card-name">${esc(c.name)}<span class="city-card-country">${esc(c.country)}</span></div><div class="weather-art" aria-hidden="true">${v.icon}</div></div>
-      <div class="city-card-temp">${c.temp == null ? "–" : Math.round(c.temp)}°</div>
-      <div class="city-card-condition">${esc(c.condition || v.label)}</div>
-      <div class="city-card-meta"><span>رياح ${c.wind == null ? "–" : Math.round(c.wind)} كم/س</span><span>غيوم ${c.cloud == null ? "–" : Math.round(c.cloud)}%</span></div>
-      ${alert}
-    </a>`;
-  }).join("");
-}
-
-async function loadOverview() {
-  const grid = document.getElementById("cityGrid");
-  try {
-    const res = await fetch("/api/overview", { cache: "no-store" });
-    const cities = await res.json();
-    if (!res.ok || !Array.isArray(cities) || !cities.length) throw new Error("تعذّر تحميل حالة المدن");
-    renderCityCards(cities);
-  } catch (e) {
-    grid.innerHTML = `<p class="cities-error">${esc(e.message || "تعذّر تحميل حالة المدن الآن")}</p>`;
+    view.innerHTML = `<p class="err">${esc(e.message)}</p>`;
   }
 }
 
@@ -349,6 +251,7 @@ function render(w) {
     ${alerts
       ? `<section class="alerts" aria-label="التنبيهات">${alerts}</section>`
       : `<p class="muted">لا توجد تنبيهات خلال الـ 48 ساعة القادمة.</p>`}
+    <div class="ad-slot" data-placement="home_top"></div>
     ${w.summary ? `<section class="box" aria-label="ملخص اليوم">
       <p>${esc(w.summary)}</p>
       <div class="row">
@@ -357,6 +260,7 @@ function render(w) {
       </div>
       <div class="muted" id="shareMsg" role="status"></div>
     </section>` : ""}
+    <div class="ad-slot" data-placement="home_mid"></div>
     ${(w.tips || []).length ? `<section class="tips" aria-label="ماذا أفعل اليوم">${w.tips.map(t =>
       `<div class="box"><small>${esc(t.label)}</small>${esc(t.text)}</div>`).join("")}</section>` : ""}
     <section class="push" aria-label="الإشعارات">
@@ -376,11 +280,13 @@ function render(w) {
     <div class="hours">${hours}</div>
     <h2>الأيام السبعة القادمة</h2>
     <div class="days">${days}</div>
+    <div class="ad-slot" data-placement="home_bottom"></div>
     <h2>دقة توقعاتنا</h2>
     <div class="acc" id="acc"><p class="muted note">جارٍ حساب الدقة…</p></div>`;
 
   bindPush(w.city);
   loadAccuracy(w.city);
+  if (window.lwAds) window.lwAds.loadAll();
   const sb = document.getElementById("shareBtn");
   if (sb) sb.onclick = async () => {
     const m = document.getElementById("shareMsg");
@@ -398,6 +304,14 @@ function render(w) {
 }
 
 /* ---------- الدقة ---------- */
+function accTiles(s) {
+  return `
+      <div class="tile"><b>±${s.mae_max}°</b><span>متوسط خطأ العظمى لتوقع الغد</span></div>
+      <div class="tile"><b>${s.within2_max}%</b><span>أيام كان الخطأ فيها 2° أو أقل</span></div>
+      <div class="tile"><b>${s.rain_acc}%</b><span>صحة الحكم: مطر أو لا مطر</span></div>`;
+}
+const accNote = t => `<p class="muted note">${t}</p>`;
+
 async function loadAccuracy(city) {
   const box = document.getElementById("acc");
   try {
@@ -405,22 +319,34 @@ async function loadAccuracy(city) {
     if (!res.ok) throw new Error();
     const a = await res.json();
     const own = a.cities[city.slug];
-    let s = own && own.leads["1"], scope = "city";
-    if (!s || s.n < 3) { s = a.overall.leads["1"]; scope = "overall"; }
-    if (!s || s.n < 3) {
-      box.innerHTML = `<p class="muted note">نقارن توقعاتنا بقراءات محطات الرصد يومياً، وستظهر نسبة الدقة هنا بعد توفر 3 أيام مكتملة على الأقل.</p>`;
+    const minDays = (a.thresholds && a.thresholds.min_days) || 3;
+
+    // مدينة لها محطة مطابقة وبيانات كافية: أرقامها هي
+    if (own && own.basis === "station" && own.leads["1"].ready) {
+      const s = own.leads["1"];
+      box.innerHTML = accTiles(s) + accNote(
+        `مقارنة ${s.n} يوماً من آخر ${a.days} يوماً بقراءات محطة ${esc(own.station_name)} (${esc(own.station)}) ` +
+        `على بعد ${own.station_km} كم وبفرق ارتفاع ${Math.abs(own.elev_diff)} م.` +
+        (s.small_sample ? " العينة ما زالت صغيرة، فخذ الأرقام بحذر." : ""));
       return;
     }
-    const src = scope === "city"
-      ? `مقارنة ${s.n} يوماً من آخر ${a.days} يوماً بقراءات محطة ${esc(own.station)} (مطار). قد تختلف الحرارة داخل المدينة عن المطار.`
-      : `لا توجد محطة رصد قريبة من ${esc(city.name)} بعد، فهذه أرقام ${a.overall.stations} مدن لها محطات (${s.n} مقارنة).`;
-    box.innerHTML = `
-      <div class="tile"><b>±${s.mae_max}°</b><span>متوسط خطأ العظمى لتوقع الغد</span></div>
-      <div class="tile"><b>${s.within2_max}%</b><span>أيام كان الخطأ فيها 2° أو أقل</span></div>
-      <div class="tile"><b>${s.rain_acc}%</b><span>صحة الحكم: مطر أو لا مطر</span></div>
-      <p class="muted note">${src}</p>`;
+
+    // لا رقم خاص بهذه المدينة: لا ننسب إليها رقماً ليس لها. نعرض معدل المدن ذات المحطات المطابقة بوسم صريح.
+    const o1 = a.overall.leads["1"];
+    if (o1 && o1.ready) {
+      const why = own && own.reason === "no_data"
+        ? `لم تُجمع بعد قراءات كافية من المحطة المطابقة لـ${esc(city.name)}`
+        : `لا توجد محطة رصد قريبة من ${esc(city.name)} ومتقاربة معها في الارتفاع`;
+      box.innerHTML = accTiles(o1) + accNote(
+        `${why}، لذلك نعرض بدلاً منها معدل ${a.overall.stations} مدن لها محطات مطابقة (${o1.n} مقارنة). ` +
+        `هذا المعدل لا يخص ${esc(city.name)}.` + (o1.small_sample ? " العينة ما زالت صغيرة." : ""));
+      return;
+    }
+
+    box.innerHTML = accNote(
+      `نقارن توقعاتنا الفعلية بقراءات محطات الرصد يومياً، وستظهر نسبة الدقة هنا بعد ${minDays} أيام مكتملة على الأقل.`);
   } catch (e) {
-    box.innerHTML = `<p class="muted note">تعذّر تحميل الدقة الآن.</p>`;
+    box.innerHTML = accNote("تعذّر تحميل الدقة الآن.");
   }
 }
 
@@ -470,13 +396,13 @@ function bindPush(city) {
   };
 }
 
-loadOverview();
 citySel.addEventListener("change", loadWeather);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 loadCities().then(loadWeather).catch(() => {
   view.innerHTML = `<p class="err">تعذّر الاتصال بالخادم</p>`;
 });
 </script>
-<script src="/static/share.js"></script><script src="/static/ads.js"></script><script>window.loadWeatherAd && window.loadWeatherAd("home-ad","home_top");</script>
+<script src="/static/share.js"></script>
+<script src="/static/ads.js"></script>
 </body>
 </html>

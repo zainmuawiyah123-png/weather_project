@@ -13,7 +13,7 @@ from pathlib import Path
 # نعزل البيانات في مجلد مؤقت قبل استيراد أي وحدة
 _TMP = tempfile.mkdtemp(prefix="lw-test-")
 os.environ["DATA_DIR"] = _TMP
-os.environ["ADMIN_TOKEN"] = "test-token-123"
+os.environ["ADMIN_TOKEN"] = "test-token-1234567890abc"
 os.environ["SITE_URL"] = "https://test.example"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -159,24 +159,18 @@ def test_accuracy_parse_ogimet_nil_returns_none():
     assert accuracy.parse_ogimet_line(line) is None
 
 
-def test_accuracy_all_cities_have_stations():
-    """كل المدن الـ25 لها مدخل محطات (وإن كان بديلاً إقليمياً)."""
+def test_accuracy_stats_shape_without_data():
+    """بلا قراءات: لا أرقام ولا ادعاءات، وكل مدينة إما متاحة بلا بيانات أو غير متاحة."""
     import main
-    assert len(main.CITIES) == 25
-    for slug in main.CITIES:
-        assert slug in accuracy.STATIONS, f"{slug} بلا مدخل محطات"
-
-
-def test_accuracy_stats_has_regional_fallback():
-    """المدن بلا محطة تحصل على أساس 'regional' لا صفر صامت."""
     db = Path(_TMP) / "acc-test.db"
     accuracy.init_db(db)
-    cities = {"amman": {"name": "عمّان", "country": "الأردن"},
-              "gaza": {"name": "غزة", "country": "فلسطين"}}
+    cities = {s: {**c} for s, c in main.CITIES.items()}
     st = accuracy.stats(db, cities, 30)
-    assert st["cities"]["amman"]["basis"] in ("station", "regional", "none")
-    assert "overall" in st and "cities_total" in st["overall"]
-    assert st["overall"]["cities_total"] == 2
+    assert st["overall"]["cities_total"] == 25
+    for slug, c in st["cities"].items():
+        assert c["basis"] in ("station", "unavailable")
+        assert c["basis"] != "regional"
+        assert c["leads"]["1"]["n"] == 0
 
 
 def test_accuracy_daily_summaries():
@@ -246,7 +240,7 @@ def test_admin_session_roundtrip():
     assert security.check_session(tok) is True
     assert security.check_session("9999999999.deadbeef") is False
     assert security.check_session(None) is False
-    assert security.check_password("test-token-123") is True
+    assert security.check_password("test-token-1234567890abc") is True
     assert security.check_password("wrong") is False
 
 
@@ -333,8 +327,9 @@ def test_ads_cpc_revenue():
         "name": "CPC", "placement": "map_side", "pricing": "cpc", "rate": 0.25,
         "start_date": "2020-01-01", "end_date": "2099-01-01",
     })
+    crid = ads.add_creative(cid, {"kind": "text", "title": "ن"})
     for _ in range(8):
-        ads.record_click(cid, 1, "map_side", "/")
+        assert ads.record_click(cid, crid, "map_side", "/") is True
     assert ads.campaign_revenue(ads.get_campaign(cid)) == 2.0
 
 
@@ -384,7 +379,8 @@ def test_content_arabic_dual_forms():
 def _client():
     from fastapi.testclient import TestClient
     import main
-    return TestClient(main.app, raise_server_exceptions=False)
+    # https: كوكي اللوحة يُرسَل بعلامة Secure فلا يعود إلا عبر اتصال https (كما في الإنتاج)
+    return TestClient(main.app, raise_server_exceptions=False, base_url="https://testserver")
 
 
 def test_routes_public_pages():
@@ -417,9 +413,8 @@ def test_route_ads_serve_and_track():
     assert r.status_code == 200
     ad = r.json()
     assert "placement" in ad
-    r2 = c.post("/api/ads/impression", json={
-        "campaign_id": ad["campaign_id"], "creative_id": ad["creative_id"],
-        "placement": "home_top", "page": "/"})
+    assert ad["click_url"].startswith(("/api/ads/click?t=", "/advertise"))
+    r2 = c.post("/api/ads/impression")  # قديم: لا يفعل شيئاً
     assert r2.status_code == 200
 
 
@@ -469,7 +464,7 @@ def test_route_admin_requires_auth():
 def test_route_admin_login_and_dashboard():
     c = _client()
     assert c.post("/admin/login", json={"password": "wrong"}).status_code == 401
-    r = c.post("/admin/login", json={"password": "test-token-123"})
+    r = c.post("/admin/login", json={"password": "test-token-1234567890abc"})
     assert r.status_code == 200
     d = c.get("/admin/dashboard")
     assert d.status_code == 200 and "لوحة الإعلانات" in d.text
@@ -477,7 +472,7 @@ def test_route_admin_login_and_dashboard():
 
 def test_route_admin_campaign_validation():
     c = _client()
-    c.post("/admin/login", json={"password": "test-token-123"})
+    c.post("/admin/login", json={"password": "test-token-1234567890abc"})
     bad = c.post("/admin/campaigns", json={"name": "حملة", "placement": "nope"})
     assert bad.status_code == 422
     good = c.post("/admin/campaigns", json={

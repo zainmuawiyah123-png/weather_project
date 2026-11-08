@@ -1,30 +1,30 @@
 """
 قياس الدقة - طقس بلاد الشام
 
-المشكلة في النسخة السابقة:
-  كانت المحطات سبعاً فقط، وخمس منها لا تُرجع أي قراءة من aviationweather.gov،
-  فبقيت لوحة الدقة فارغة لـ23 مدينة من 25. وكانت المقارنة تعتمد على محطة واحدة
-  لكل مدينة، وإن غابت لا يوجد بديل.
+المبدأ: لا نعرض رقم دقة إلا إن كان يقيس التوقع فعلاً. لذلك:
 
-الحل في هذه النسخة: مصدران متكاملان + بديل واضح
-  1. قراءات محطات حقيقية (METAR) من Ogimet — يغطي المحطات الأردنية والسورية
-     واللبنانية والفلسطينية التي لا يوفرها aviationweather.
-  2. أرشيف توقعات Open-Meteo (historical-forecast-api) — يغطي كل المدن الـ25،
-     ويُستخدم لتعبئة سجل التوقعات فوراً بدل انتظار أيام.
-  3. لكل مدينة: قائمة محطات مرشّحة مرتّبة بالمسافة، ونختار الأقرب التي لها قراءات.
-     وإن لم تتوفر أي محطة، نعرض بديلاً واضحاً (مقارنة على مستوى المنطقة) بدل صفر صامت.
+1. القراءات الحقيقية: تقارير METAR لمطارات (Ogimet أساساً، وaviationweather.gov احتياطياً).
+2. التوقعات المقارَنة: ما أصدره التطبيق فعلاً فقط (جدول forecast_log، source='live').
+   الأرشيف التاريخي (backfill) يُحفظ في جدول منفصل forecast_archive ولا يدخل في الأرقام المنشورة،
+   لأنه ليس توقعاً صدر للمستخدمين، وحسب علمنا يعكس توقعاً قصير الأمد جداً فيبدو أدق مما وصل لهم.
+3. مطابقة المحطة: لا تُقارن مدينة بمحطة إلا إن كانت ضمن ACC_MAX_KM كم وفرق الارتفاع ضمن ACC_MAX_ELEV م.
+   الأقرب أولاً. وإلا تظهر المدينة "غير متاحة" بدل رقم مضلِّل يعكس فرق المكان لا خطأ التوقع
+   (مثلاً مدينة على 1000 م مقابل مطار على مستوى البحر: فرق حرارة نحو 6 درجات).
+4. لا يوجد "متوسط إقليمي" يُنسب إلى مدينة لا محطة لها.
 
 حدود يجب أن تعرفها:
-- المحطات مطارات، وقد تختلف حرارتها عن قلب المدينة (الارتفاع والعمران).
-- METAR لا يعطي كمية المطر؛ نعرف فقط إن حدث هطول أم لا.
-- لا تظهر أي نسبة قبل توفر أيام كافية للمقارنة.
+- إحداثيات المحطات وارتفاعاتها في STATION_INFO تقريبية؛ تحقق منها بـ --discover قبل الاعتماد.
+- المحطات مطارات، وقد تختلف حرارتها عن قلب المدينة (العمران والمنخفضات المحلية).
+- METAR لا يعطي كمية المطر؛ نعرف فقط إن حدث هطول أم لا، وقد يفوته هطول قصير بين قراءتين.
+- لا يظهر أي رقم قبل ACC_MIN_DAYS أيام مقارنة، ويُوسم "عينة صغيرة" حتى ACC_SMALL_SAMPLE يوماً.
 
-تشغيل أدوات مساعدة من سطر الأوامر:
-  python accuracy.py --check      أي محطات من القائمة ترد فعلاً
-  python accuracy.py --discover   محطات METAR القريبة من كل مدينة
+أدوات سطر الأوامر:
+  python accuracy.py --check      أي محطات ترد فعلاً (Ogimet)
+  python accuracy.py --match      أي مدينة تطابق أي محطة (المسافة وفرق الارتفاع)
+  python accuracy.py --discover   محطات METAR القريبة من كل مدينة (لتحديث STATION_INFO)
   python accuracy.py --collect    جلب القراءات الآن
-  python accuracy.py --backfill   تعبئة سجل التوقعات من الأرشيف (كل المدن)
-  python accuracy.py --stats      طباعة الإحصائيات الحالية
+  python accuracy.py --backfill   تعبئة جدول الأرشيف الداخلي (لا يظهر في اللوحة)
+  python accuracy.py --stats      طباعة الإحصاءات الحالية
 """
 import json
 import logging
@@ -51,49 +51,39 @@ OGIMET_URL = "https://www.ogimet.com/cgi-bin/getmetar"
 HEADERS = {"User-Agent": "levant-weather/1.0 (+https://github.com/levant-weather)"}
 
 # ---------- المحطات ----------
-# مدينة: قائمة رموز ICAO مرشّحة مرتّبة بالأفضلية (الأقرب أولاً).
-# كل المدن الـ25 لها مدخل؛ المدن التي لا محطة قريبة لها تُقارن على مستوى المنطقة.
-STATIONS = {
-    # الأردن
-    "amman": ["OJAM", "OJAI"],
-    "irbid": ["OJAM", "OJAI", "LLIB"],
-    "zarqa": ["OJAM", "OJAI"],
-    "ajloun": ["OJAM", "OJAI", "LLIB"],
-    "jerash": ["OJAM", "OJAI"],
-    "salt": ["OJAM", "OJAI"],
-    "madaba": ["OJAM", "OJAI"],
-    "karak": ["OJAI", "OJAM", "OJAQ"],
-    "tafilah": ["OJAQ", "OJAI"],
-    "maan": ["OJAQ", "OJAM"],
-    "aqaba": ["OJAQ"],
-    "deadsea": ["OJAI", "OJAM", "LLBG"],
-    # فلسطين
-    "jerusalem": ["LLBG", "LLER", "LLIB"],
-    "ramallah": ["LLBG", "LLER"],
-    "nablus": ["LLBG", "LLER", "LLIB"],
-    "hebron": ["LLBG", "LLER"],
-    "gaza": ["LLBG", "LLER"],
-    # لبنان
-    "beirut": ["OLBA", "LLIB", "OSDI"],
-    "tripoli": ["OLBA", "OSLK", "LLIB"],
-    "zahle": ["OSDI", "OLBA", "LLIB"],
-    # سوريا
-    "damascus": ["OSDI", "OSDZ"],
-    "aleppo": ["OSAP", "OSDZ"],
-    "homs": ["OSDI", "OSLK", "OSDZ"],
-    "latakia": ["OSLK", "OSAP", "OSDI"],
-    "daraa": ["OSDI", "OJAM", "OSDZ"],
+# رمز ICAO: (خط العرض، خط الطول، الارتفاع بالمتر، الاسم). قيم تقريبية؛ تحقق منها بـ --discover.
+# أضف محطة هنا فقط بعد أن تتأكد أن Ogimet يُرجع قراءاتها (--check). المدن المطابقة تُحدَّد تلقائياً بالمسافة والارتفاع.
+STATION_INFO = {
+    "OJAM": (31.9727, 35.9916, 779, "عمّان - مطار عمّان المدني"),
+    "OJAI": (31.7226, 35.9932, 722, "عمّان - مطار الملكة علياء"),
+    "OJAQ": (29.6116, 35.0181, 51, "العقبة - مطار الملك حسين"),
+    "OLBA": (33.8209, 35.4884, 27, "بيروت - مطار رفيق الحريري"),
+    "OSDI": (33.4115, 36.5156, 616, "دمشق الدولي"),
+    "OSAP": (36.1807, 37.2244, 389, "حلب الدولي"),
+    "OSLK": (35.4011, 35.9487, 48, "اللاذقية - مطار باسل الأسد"),
 }
 
-# محطات لها قراءات مؤكدة (تُستخدم في --check وفي التقارير)
-KNOWN_GOOD = ["OJAM", "OJAI", "OJAQ", "OSDI", "OSAP", "OSDZ", "LLBG", "LLHA", "LLIB", "LLER"]
+
+def candidates_for(city: dict) -> list[dict]:
+    """
+    محطات تصلح لمقارنة هذه المدينة، الأقرب أولاً: ضمن ACC_MAX_KM كم، وفرق الارتفاع ضمن ACC_MAX_ELEV م.
+    city: {"lat":..., "lon":..., "elev":...}
+    """
+    out = []
+    for icao, (la, lo, el, name) in STATION_INFO.items():
+        km = _km(city["lat"], city["lon"], la, lo)
+        diff = (city.get("elev") or 0) - el
+        if km <= config.ACC_MAX_KM and abs(diff) <= config.ACC_MAX_ELEV:
+            out.append({"icao": icao, "name": name, "km": round(km), "elev_diff": round(diff)})
+    return sorted(out, key=lambda x: x["km"])
+
 
 RAIN_MM = 1.0        # توقع "يوم ماطر" عندما يبلغ مجموع التوقع هذا الحد
 MIN_HOURS = 16       # أقل عدد ساعات مختلفة من اليوم نحتاجه لنعتبر اليوم مكتمل القراءات
 MIN_OBS = 10
 LEADS = (1, 2, 3)    # قبل كم يوم صدر التوقع
 KEEP_DAYS = 120
-BACKFILL_DAYS = 30   # كم يوماً نعبّئها من الأرشيف
+BACKFILL_DAYS = 30   # كم يوماً نعبّئها في جدول الأرشيف الداخلي
 
 
 # ---------- المنطقة الزمنية ----------
@@ -203,6 +193,16 @@ def init_db(db_path) -> None:
         db.execute(
             """CREATE TABLE IF NOT EXISTS forecast_log (
                 city TEXT, issued_date TEXT, target_date TEXT,
+                max_t REAL, min_t REAL, precip REAL, source TEXT,
+                PRIMARY KEY (city, issued_date, target_date))"""
+        )
+        cols = [r[1] for r in db.execute("PRAGMA table_info(forecast_log)")]
+        if "source" not in cols:  # قاعدة قديمة: صفوفها بلا مصدر ولا تدخل في الدقة المنشورة
+            db.execute("ALTER TABLE forecast_log ADD COLUMN source TEXT")
+        # أرشيف تاريخي داخلي: ليس توقعاً صدر للمستخدمين، ولا يدخل في الأرقام المنشورة
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS forecast_archive (
+                city TEXT, issued_date TEXT, target_date TEXT,
                 max_t REAL, min_t REAL, precip REAL,
                 PRIMARY KEY (city, issued_date, target_date))"""
         )
@@ -252,7 +252,7 @@ def fetch_ogimet(ids: list[str], hours: int = 48) -> list:
 def collect(db_path, hours: int = 48, fetch=None) -> dict:
     """يجلب قراءات كل المحطات المرشّحة ويخزّنها. يعيد ملخصاً."""
     init_db(db_path)
-    ids = sorted({i for v in STATIONS.values() for i in v})
+    ids = sorted(STATION_INFO)
     rows = []
     if fetch is not None:
         recs = fetch(ids, hours)
@@ -288,8 +288,9 @@ def collect(db_path, hours: int = 48, fetch=None) -> dict:
 # ---------- تعبئة سجل التوقعات من الأرشيف ----------
 def backfill_forecasts(db_path, cities: dict, days: int = BACKFILL_DAYS, fetch=None) -> dict:
     """
-    يملأ جدول forecast_log بتوقعات النماذج المؤرشفة لكل مدينة.
-    هذا يجعل لوحة الدقة تعمل فوراً لكل المدن الـ25 بدل انتظار أسابيع.
+    يملأ جدول forecast_archive (داخلي) بتوقعات النماذج المؤرشفة لكل مدينة.
+    تنبيه: هذه ليست توقعات أصدرها التطبيق، ولا تدخل في أرقام الدقة المنشورة في اللوحة.
+    تصلح للمعايرة الداخلية فقط.
 
     cities: {slug: {"name":..., "country":..., "lat":..., "lon":...}}
     """
@@ -349,10 +350,10 @@ def backfill_forecasts(db_path, cities: dict, days: int = BACKFILL_DAYS, fetch=N
                 precs = [v for v in precs if v is not None]
                 if not maxes or not mins:
                     continue
-                # التوقع "صدر" قبل يوم من الهدف (نحاكي توقع الأمس)
+                # تقدير من الأرشيف، لا توقع صدر للمستخدمين: يُحفظ في جدول منفصل ولا يدخل في الدقة المنشورة
                 issued = (date.fromisoformat(target) - timedelta(days=1)).isoformat()
                 db.execute(
-                    "INSERT OR IGNORE INTO forecast_log VALUES (?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO forecast_archive VALUES (?,?,?,?,?,?)",
                     (slug, issued, target, round(sum(maxes) / len(maxes), 1),
                      round(sum(mins) / len(mins), 1), round(sum(precs) / len(precs), 1) if precs else 0.0),
                 )
@@ -397,13 +398,15 @@ class _Acc:
     def summary(self) -> dict:
         n = len(self.emax)
         if n == 0:
-            return {"n": 0}
+            return {"n": 0, "ready": False}
 
         def mae(vals):
             return round(sum(abs(x) for x in vals) / len(vals), 1)
 
         return {
             "n": n,
+            "ready": n >= config.ACC_MIN_DAYS,
+            "small_sample": n < config.ACC_SMALL_SAMPLE,
             "mae_max": mae(self.emax),
             "mae_min": mae(self.emin),
             "bias_max": round(sum(self.emax) / n, 1),
@@ -418,80 +421,90 @@ class _Acc:
 
 def stats(db_path, cities: dict, days: int = 30) -> dict:
     """
-    cities: {slug: {"name":..., "country":...}}
-    يعيد إحصاءات لكل مدينة، مع حقل "basis" يوضح مصدر المقارنة:
-      "station"  = مقارنة بمحطة رصد قريبة
-      "regional" = لا محطة قريبة؛ مقارنة على مستوى المنطقة (بديل واضح)
-      "none"     = لا بيانات كافية بعد
+    cities: {slug: {"name","country","lat","lon","elev"}}
+    لكل مدينة basis واحد من:
+      "station"     مقارنة بمحطة مطابقة (قريبة ومتقاربة الارتفاع) لها قراءات
+      "unavailable" لا رقم: reason = no_station (لا محطة مطابقة) أو no_data (محطة مطابقة بلا قراءات كافية بعد)
+    لا توجد أرقام "إقليمية" تُنسب لمدينة لا محطة لها. والمجموع العام يُحسب من المدن ذات المحطات المطابقة فقط.
     """
     init_db(db_path)
     out = {}
     pooled = {lead: _Acc() for lead in LEADS}
+    eligible = 0
 
     with sqlite3.connect(db_path) as db:
-        for slug, c in cities.items():
-            info = {"name": c["name"], "country": c["country"]}
-            tz = _tz(slug, info["country"])
-            today = datetime.now(tz).date()
-            since = today - timedelta(days=days)
-            lo = int(datetime.combine(since - timedelta(days=1), dtime(0, 0), tzinfo=tz).timestamp())
-
-            icaos = STATIONS.get(slug, [])
-            best_icao, best_rows = None, []
-            for icao in icaos:
-                rows = db.execute(
-                    "SELECT ts, temp, rain FROM obs WHERE icao=? AND ts>=?", (icao, lo)
-                ).fetchall()
-                if len(rows) > len(best_rows):
-                    best_icao, best_rows = icao, rows
-
-            obs = {
-                d: e
-                for d, e in daily_summaries(best_rows, tz).items()
-                if _complete(e) and since <= date.fromisoformat(d) < today
-            }
-
-            accs = {lead: _Acc() for lead in LEADS}
-            forecasts = db.execute(
-                "SELECT issued_date, target_date, max_t, min_t, precip FROM forecast_log WHERE city=?",
-                (slug,),
-            ).fetchall()
-            for issued, target, fmax, fmin, fprecip in forecasts:
-                e = obs.get(target)
-                if not e:
-                    continue
-                lead = (date.fromisoformat(target) - date.fromisoformat(issued)).days
-                if lead not in accs:
-                    continue
-                args = (fmax - e["tmax"], fmin - e["tmin"] if e["tmin"] is not None else 0,
-                        (fprecip or 0) >= RAIN_MM, bool(e["rain"]))
-                accs[lead].add(*args)
-                pooled[lead].add(*args)
-
-            has_station = best_icao is not None and len(obs) > 0
-            out[slug] = {
+        for slug, info in cities.items():
+            cands = candidates_for(info)
+            eligible += 1 if cands else 0
+            entry = {
                 "name": info["name"],
                 "country": info["country"],
-                "station": best_icao,
-                "obs_days": len(obs),
-                "basis": "station" if has_station else "none",
-                "leads": {str(lead): accs[lead].summary() for lead in LEADS},
+                "basis": "unavailable",
+                "reason": "no_station" if not cands else "no_data",
+                "station": None, "station_name": None, "station_km": None, "elev_diff": None,
+                "obs_days": 0,
+                "leads": {str(lead): {"n": 0, "ready": False} for lead in LEADS},
             }
+            if cands:
+                tz = _tz(slug, info["country"])
+                today = datetime.now(tz).date()
+                since = today - timedelta(days=days)
+                lo = int(datetime.combine(since - timedelta(days=1), dtime(0, 0), tzinfo=tz).timestamp())
 
-    # المدن بلا محطة: نعرض لها المتوسط الإقليمي كبديل واضح
-    regional = {str(lead): pooled[lead].summary() for lead in LEADS}
-    for slug, c in out.items():
-        if c["basis"] == "none":
-            c["basis"] = "regional"
-            c["leads"] = regional
+                chosen = None
+                for cand in cands:  # الأقرب أولاً؛ نأخذ أول محطة لها أيام مكتملة
+                    rows = db.execute(
+                        "SELECT ts, temp, rain FROM obs WHERE icao=? AND ts>=?", (cand["icao"], lo)
+                    ).fetchall()
+                    obs = {
+                        d: e
+                        for d, e in daily_summaries(rows, tz).items()
+                        if _complete(e) and since <= date.fromisoformat(d) < today
+                    }
+                    if obs:
+                        chosen = (cand, obs)
+                        break
+
+                if chosen:
+                    cand, obs = chosen
+                    accs = {lead: _Acc() for lead in LEADS}
+                    forecasts = db.execute(
+                        "SELECT issued_date, target_date, max_t, min_t, precip FROM forecast_log "
+                        "WHERE city=? AND source='live'",
+                        (slug,),
+                    ).fetchall()
+                    for issued, target, fmax, fmin, fprecip in forecasts:
+                        e = obs.get(target)
+                        if not e:
+                            continue
+                        lead = (date.fromisoformat(target) - date.fromisoformat(issued)).days
+                        if lead not in accs:
+                            continue
+                        args = (fmax - e["tmax"], fmin - e["tmin"] if e["tmin"] is not None else 0,
+                                (fprecip or 0) >= RAIN_MM, bool(e["rain"]))
+                        accs[lead].add(*args)
+                        pooled[lead].add(*args)
+                    entry.update(
+                        basis="station", reason=None,
+                        station=cand["icao"], station_name=cand["name"],
+                        station_km=cand["km"], elev_diff=cand["elev_diff"],
+                        obs_days=len(obs),
+                        leads={str(lead): accs[lead].summary() for lead in LEADS},
+                    )
+            out[slug] = entry
 
     return {
         "days": days,
+        "thresholds": {"max_km": config.ACC_MAX_KM, "max_elev": config.ACC_MAX_ELEV,
+                       "min_days": config.ACC_MIN_DAYS},
         "cities": out,
         "overall": {
-            "stations": sum(1 for c in out.values() if c["basis"] == "station"),
+            # عدد المدن التي تساهم فعلاً في الأرقام (لها مقارنة واحدة على الأقل)، لا مجرد مدن لها قراءات
+            "stations": sum(1 for c in out.values()
+                            if c["basis"] == "station" and c["leads"]["1"]["n"] > 0),
+            "eligible": eligible,
             "cities_total": len(out),
-            "leads": regional,
+            "leads": {str(lead): pooled[lead].summary() for lead in LEADS},
         },
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -510,16 +523,28 @@ def _cli(argv):
 
     cmd = argv[1] if len(argv) > 1 else "--check"
     if cmd == "--check":
-        ids = sorted({i for v in STATIONS.values() for i in v})
-        rows = fetch_ogimet(ids, 6)
+        rows = fetch_ogimet(sorted(STATION_INFO), 6)
         seen = {}
         for r in rows:
             seen[r[0]] = seen.get(r[0], 0) + 1
-        for slug, icaos in STATIONS.items():
-            for i in icaos:
-                print(f"{slug:10s} {i}: {seen.get(i, 0)} تقرير خلال 6 ساعات")
+        for icao, (_, _, _, name) in STATION_INFO.items():
+            print(f"{icao}  {name}: {seen.get(icao, 0)} تقرير خلال 6 ساعات")
         if not rows:
             print("لم يصل أي رد من Ogimet؛ تحقق من الاتصال.")
+    elif cmd == "--match":
+        for slug, c in main.CITIES.items():
+            cands = candidates_for(c)
+            if cands:
+                best = cands[0]
+                print(f"{c['name']}: {best['icao']} ({best['km']} كم، فرق ارتفاع {best['elev_diff']} م)")
+            else:
+                near = min(
+                    ((_km(c["lat"], c["lon"], la, lo), i, c.get("elev", 0) - el)
+                     for i, (la, lo, el, _) in STATION_INFO.items()),
+                    default=None,
+                )
+                why = f"أقرب {near[1]} على {near[0]:.0f} كم وفرق ارتفاع {near[2]:.0f} م" if near else "لا محطات"
+                print(f"{c['name']}: غير متاحة ({why})")
     elif cmd == "--discover":
         for slug, c in main.CITIES.items():
             la, lo = c["lat"], c["lon"]
@@ -531,16 +556,21 @@ def _cli(argv):
             for rec in recs:
                 icao = rec.get("icaoId")
                 if icao and rec.get("lat") is not None and rec.get("lon") is not None:
-                    found[icao] = (_km(la, lo, rec["lat"], rec["lon"]), rec.get("name", ""))
-            line = ", ".join(f"{k} ({d:.0f} كم) {n}" for k, (d, n) in sorted(found.items(), key=lambda x: x[1][0]))
+                    found[icao] = (_km(la, lo, rec["lat"], rec["lon"]), rec.get("name", ""),
+                                   rec.get("lat"), rec.get("lon"), rec.get("elev"))
+            line = ", ".join(
+                f"{k} ({d[0]:.0f} كم، lat={d[2]}, lon={d[3]}, elev={d[4]}) {d[1]}"
+                for k, d in sorted(found.items(), key=lambda x: x[1][0])
+            )
             print(f"{c['name']}: {line or 'لا محطات METAR ضمن ~120 كم'}")
     elif cmd == "--collect":
         print(collect(main.DB_PATH))
     elif cmd == "--backfill":
         info = {s: {**c} for s, c in main.CITIES.items()}
+        print("تنبيه: هذه تعبئة لجدول الأرشيف الداخلي ولن تظهر في لوحة الدقة.")
         print(backfill_forecasts(main.DB_PATH, info))
     elif cmd == "--stats":
-        info = {s: {"name": c["name"], "country": c["country"]} for s, c in main.CITIES.items()}
+        info = {s: {**c} for s, c in main.CITIES.items()}
         print(json.dumps(stats(main.DB_PATH, info), ensure_ascii=False, indent=1))
     else:
         print(__doc__)

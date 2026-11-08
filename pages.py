@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timezone
 
 import ads
+import config
 import content
 
 e = html.escape
@@ -164,7 +165,7 @@ def render_city_page(w: dict, base: str, cities: dict) -> str:
     )
 
     # رعاية موسمية لتنبيهات الطقس (إن وُجدت حملة)
-    sponsor = ads.serve("alert_sponsor", f"/weather/{slug}")
+    sponsor = ads.pick("alert_sponsor")  # اختيار فقط؛ لا يُسجَّل ظهور عند رسم الصفحة
     sponsor_html = ""
     if sponsor and sponsor.get("sponsored"):
         sponsor_html = (
@@ -403,6 +404,13 @@ document.getElementById("leadForm").addEventListener("submit", async function (e
 
 
 def render_privacy(base: str) -> str:
+    if config.ADS_BEFORE_CONSENT:
+        consent_line = ("<li><b>الإعلانات من الموقع نفسه تظهر قبل اختيارك،</b> ولا تُستخدم ملفات تعريف ارتباط "
+                        "للإعلانات الخارجية قبل موافقتك. يظهر شريط موافقة عند أول زيارة، ويمكنك الرفض "
+                        "فتتوقف الإعلانات.</li>")
+    else:
+        consent_line = ("<li><b>لا نُحمّل أي إعلان قبل موافقتك.</b> يظهر شريط موافقة عند أول زيارة، "
+                        "ويمكنك الرفض.</li>")
     return f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -423,13 +431,15 @@ def render_privacy(base: str) -> str:
       لا نخزّنه على خادمنا.</li>
     <li><b>اشتراك الإشعارات:</b> إن فعّلت الإشعارات، نخزّن معرّف اشتراك المتصفح والمدينة
       ومستوى التنبيه المطلوب، لإرسال التنبيهات فقط.</li>
-    <li><b>بيانات الاستخدام:</b> نعدّ ظهور الإعلانات ونقراتها لأغراض القياس والفوترة.</li>
+    <li><b>بيانات الاستخدام:</b> نعدّ ظهور الإعلانات ونقراتها لأغراض القياس والفوترة. ولمنع الأرقام
+      المزوّرة نحسب بصمة مجهولة تتغير يومياً من عنوان الاتصال ونوع المتصفح؛ لا نخزّن عنوانك نفسه
+      ولا نستخدم البصمة لتتبعك عبر الأيام أو المواقع.</li>
   </ul>
 
   <h2>ملفات تعريف الارتباط والإعلانات</h2>
   <ul>
     <li>نستخدم تخزيناً محلياً لحفظ لغتك وموافقتك على ملفات تعريف الارتباط.</li>
-    <li><b>لا نُحمّل أي إعلان قبل موافقتك.</b> يظهر شريط موافقة عند أول زيارة، ويمكنك الرفض.</li>
+    {consent_line}
     <li>الإعلانات موسومة بوضوح بكلمة «إعلان»، ولا تؤثر على المحتوى التحريري.</li>
     <li>قد تستخدم شبكات الإعلانات (مثل Google AdSense) ملفات تعريف ارتباط خاصة بها
       لقياس الأداء أو تخصيص الإعلان؛ يمكنك ضبط تفضيلاتك من إعدادات إعلانات Google.</li>
@@ -443,7 +453,7 @@ def render_privacy(base: str) -> str:
   <ul>
     <li>يمكنك إلغاء اشتراك الإشعارات من المتصفح في أي وقت.</li>
     <li>يمكنك مسح تخزين الموقع من إعدادات المتصفح لإزالة اللغة والموافقة.</li>
-    <li>لأي طلب يتعلق بالبيانات، راسلنا على {e(__import__("config").CONTACT_EMAIL)}.</li>
+    <li>لأي طلب يتعلق بالبيانات، راسلنا على {e(config.CONTACT_EMAIL)}.</li>
   </ul>
 
   <h2>تنبيه مهم</h2>
@@ -501,11 +511,11 @@ def render_admin_dashboard(report: dict, campaigns: list, advertisers: list, lea
         f'<tr><td>{e(c["name"])}</td><td>{e(c.get("advertiser_name") or "—")}</td>'
         f'<td>{e(ads.PLACEMENTS.get(c["placement"], {}).get("label_ar", c["placement"]))}</td>'
         f'<td>{e(c["status"])}</td><td>{c["impressions"]}</td><td>{c["clicks"]}</td>'
-        f'<td>{c["ctr"]}%</td><td>{c["revenue"]:.2f}</td>'
+        f'<td>{c["ctr"]}%</td><td>{c["revenue"]:.2f}</td><td>{c.get("revenue_window", 0):.2f}</td>'
         f'<td><button class="navlink" data-status="{c["id"]}" data-to="{"paused" if c["status"]=="active" else "active"}">'
         f'{"إيقاف" if c["status"]=="active" else "تشغيل"}</button></td></tr>'
         for c in campaigns
-    ) or '<tr><td colspan="9" class="muted">لا حملات بعد.</td></tr>'
+    ) or '<tr><td colspan="10" class="muted">لا حملات بعد.</td></tr>'
 
     adv_rows = "".join(
         f'<tr><td>{e(a["name"])}</td><td>{e(a.get("company") or "—")}</td>'
@@ -544,7 +554,7 @@ def render_admin_dashboard(report: dict, campaigns: list, advertisers: list, lea
   <button class="navlink" id="logoutBtn" type="button">خروج</button>
 </div>
 
-<h2>الإجماليات</h2>
+<h2>إجماليات آخر {report["days"]} يوماً</h2>
 <div class="tips">
   <div class="card"><small>الظهور</small>{t["impressions"]}</div>
   <div class="card"><small>النقرات</small>{t["clicks"]}</div>
@@ -554,7 +564,7 @@ def render_admin_dashboard(report: dict, campaigns: list, advertisers: list, lea
 
 <h2>الحملات</h2>
 <div class="wrap"><table>
-  <thead><tr><th>الحملة</th><th>المعلن</th><th>المكان</th><th>الحالة</th><th>ظهور</th><th>نقرات</th><th>CTR</th><th>إيراد (د.أ)</th><th></th></tr></thead>
+  <thead><tr><th>الحملة</th><th>المعلن</th><th>المكان</th><th>الحالة</th><th>ظهور (إجمالي)</th><th>نقرات (إجمالي)</th><th>CTR</th><th>إيراد إجمالي (د.أ)</th><th>إيراد آخر {report["days"]} يوماً (د.أ)</th><th></th></tr></thead>
   <tbody>{camp_rows}</tbody>
 </table></div>
 

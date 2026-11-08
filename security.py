@@ -8,10 +8,12 @@ request body size limits, and admin session auth.
   فيمكن استخدامه لمسح الشبكة الداخلية وخدمات السحابة الوصفية (169.254.169.254).
 - لا حدود لحجم الطلب ولا لطول الحقول، ولا تحديد لمعدل الطلبات.
 """
+import base64
 import hashlib
 import hmac
 import ipaddress
 import logging
+import re
 import secrets
 import socket
 import time
@@ -40,16 +42,21 @@ ALLOWED_PUSH_SUFFIXES = (
     ".notify.windows.com",
     ".push.apple.com",
     ".push.services.mozilla.com",
-    ".googleapis.com",
 )
+# ملاحظة: لا نسمح بلاحقة ".googleapis.com" (تشمل storage.googleapis.com وأي نطاق فرعي).
+# خدمة Chrome/Android هي fcm.googleapis.com فقط وهي في القائمة أعلاه.
 
 
 def _is_private_ip(host: str) -> bool:
-    """هل يشير المضيف إلى عنوان داخلي/محلي/وصفي؟"""
+    """هل يشير المضيف إلى عنوان داخلي/محلي/وصفي؟
+
+    المضيف هنا سبق وأن مرّ بقائمة النطاقات المسموحة، فهذا فحص إضافي فقط. إن تعذّر تحليل الاسم
+    (انقطاع DNS مؤقت) لا نرفض المشترك: الإرسال نفسه سيفشل وقتها ولا ضرر، ورفضه يضيّع مشتركاً صالحاً.
+    """
     try:
         infos = socket.getaddrinfo(host, None)
     except (socket.gaierror, UnicodeError, OSError):
-        return True  # لا يمكن تحليله: نعتبره غير آمن
+        return False
     for info in infos:
         addr = info[4][0]
         try:
@@ -130,6 +137,16 @@ def validate_subscription(sub: dict) -> dict:
 
 # ---------- تحديد المعدل ----------
 _hits: dict[str, deque] = defaultdict(deque)
+_calls = 0
+_GC_EVERY = 500          # ننظّف الذاكرة كل هذا العدد من الطلبات
+_MAX_WINDOW = 3600       # أطول نافذة تحديد معدل مستخدمة (ثانية)
+
+
+def _gc(now: float) -> None:
+    """يحذف عناوين لم تعد لها طلبات ضمن أطول نافذة، حتى لا تتضخم الذاكرة."""
+    horizon = max([w for _, w in config.RATE_LIMITS.values()] + [_MAX_WINDOW])
+    for key in [k for k, q in _hits.items() if not q or now - q[-1] > horizon]:
+        del _hits[key]
 
 
 def rate_limit(bucket: str, client_ip: str) -> bool:
@@ -141,6 +158,10 @@ def rate_limit(bucket: str, client_ip: str) -> bool:
     limit, window = config.RATE_LIMITS.get(bucket, (60, 60))
     key = f"{bucket}:{client_ip}"
     now = time.time()
+    global _calls
+    _calls += 1
+    if _calls % _GC_EVERY == 0:
+        _gc(now)
     q = _hits[key]
     while q and now - q[0] > window:
         q.popleft()
@@ -151,17 +172,119 @@ def rate_limit(bucket: str, client_ip: str) -> bool:
 
 
 def client_ip(request) -> str:
-    """عنوان العميل، مع احترام ترويسة الوسيط الأولى فقط."""
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """
+    عنوان العميل الحقيقي.
+    الوسيط (Render وغيره) يُلحق عنوان من اتصل به في نهاية X-Forwarded-For. الجزء الأيسر من الترويسة
+    يكتبه العميل فلا يجوز الوثوق به (كان تزويره يتجاوز تحديد المعدل). لذلك نعدّ من اليمين
+    بعدد الوسطاء الموثوقين TRUSTED_PROXY_HOPS.
+    """
+    peer = request.client.host if request.client else "unknown"
+    hops = config.TRUSTED_PROXY_HOPS
+    if hops <= 0:
+        return peer
+    parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    if len(parts) >= hops:
+        return parts[-hops]
+    return peer
+
+
+# ---------- المفتاح السري (توقيع رموز الإعلانات وبصمة الزائر) ----------
+_secret_cache: bytes | None = None
+
+
+def _secret() -> bytes:
+    global _secret_cache
+    if _secret_cache:
+        return _secret_cache
+    if config.SECRET_KEY:
+        _secret_cache = config.SECRET_KEY.encode()
+        return _secret_cache
+    path = config.DATA_DIR / "secret.key"
+    if path.exists():
+        _secret_cache = path.read_bytes().strip()
+        if _secret_cache:
+            return _secret_cache
+    key = secrets.token_urlsafe(48).encode()
+    try:
+        path.write_bytes(key)
+        path.chmod(0o600)
+    except OSError:
+        log.warning("تعذّر حفظ المفتاح السري؛ تنتهي صلاحية الرموز عند كل إعادة تشغيل")
+    _secret_cache = key
+    return key
+
+
+def _sign(data: bytes) -> str:
+    return hmac.new(_secret(), data, hashlib.sha256).hexdigest()[:32]
+
+
+def sign_ad_token(campaign_id: int, creative_id: int, placement: str) -> str:
+    """رمز نقرة موقَّع: يربط النقرة بإعلان قدّمه الخادم فعلاً ولمدة محدودة."""
+    exp = int(time.time()) + config.AD_TOKEN_HOURS * 3600
+    payload = f"{int(campaign_id)}|{int(creative_id)}|{placement}|{exp}".encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=") + "." + _sign(payload)
+
+
+def verify_ad_token(token: str):
+    """يعيد (campaign_id, creative_id, placement) أو None إن كان الرمز مزوَّراً أو منتهياً."""
+    if not isinstance(token, str) or "." not in token or len(token) > 300:
+        return None
+    b64, _, sig = token.partition(".")
+    try:
+        payload = base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4))
+        c, cr, p, exp = payload.decode().split("|")
+        c, cr, exp = int(c), int(cr), int(exp)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not hmac.compare_digest(sig.encode(), _sign(payload).encode()):
+        return None
+    if exp < time.time():
+        return None
+    return c, cr, p
+
+
+def visitor_hash(request) -> str:
+    """بصمة زائر مجهولة تتغير يومياً (عنوان + متصفح) لاحتساب حد الظهور والنقرات دون تخزين العنوان."""
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    ua = request.headers.get("user-agent", "")[:120]
+    return _sign(f"{day}|{client_ip(request)}|{ua}".encode())[:20]
+
+
+# ---------- التحقق من الروابط ----------
+_BAD_URL_CHARS = re.compile(r"[\s\x00-\x1f\x7f<>\"'`\\]")
+
+
+def validate_http_url(value: str, allow_relative: bool = True) -> str:
+    """
+    يقبل: فارغاً، أو مساراً داخلياً يبدأ بـ "/" (وليس "//")، أو رابط https بمضيف.
+    يرفض javascript: وdata: وhttp العادي وأي رابط يحمل بيانات دخول أو رموزاً مشبوهة.
+    """
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or len(value) > 500 or _BAD_URL_CHARS.search(value):
+        raise ValueError("رابط غير صالح")
+    if value.startswith("/") and not value.startswith("//"):
+        if allow_relative:
+            return value
+        raise ValueError("يلزم رابط https كامل")
+    from urllib.parse import urlparse
+    u = urlparse(value)
+    if u.scheme != "https" or not u.hostname or u.username or u.password:
+        raise ValueError("يلزم رابط https صالح")
+    return value
 
 
 # ---------- مصادقة اللوحة ----------
 def _admin_token() -> str:
-    """رمز اللوحة: من البيئة، أو مولَّد ومحفوظ في مجلد البيانات."""
+    """
+    رمز اللوحة: من البيئة، أو مولَّد ومحفوظ في مجلد البيانات.
+    إن كان الرمز في البيئة أقصر من الحد الأدنى تُعطَّل اللوحة (يرجع "") بدل أن تبقى بحماية ضعيفة.
+    """
     if config.ADMIN_TOKEN:
+        if len(config.ADMIN_TOKEN) < config.ADMIN_MIN_TOKEN_LEN:
+            log.error("ADMIN_TOKEN أقصر من %d حرفاً؛ لوحة الإدارة معطّلة حتى تضبط رمزاً أطول.",
+                      config.ADMIN_MIN_TOKEN_LEN)
+            return ""
         return config.ADMIN_TOKEN
     path = config.DATA_DIR / "admin_token.txt"
     if path.exists():
@@ -185,7 +308,7 @@ def admin_token() -> str:
 
 
 def make_session() -> str:
-    """توقيع جلسة اللوحة: HMAC على الرمز + وقت الانتهاء."""
+    """توقيع جلسة اللوحة: HMAC على وقت الانتهاء بمفتاح مشتق من الرمز."""
     exp = int(time.time()) + config.ADMIN_SESSION_HOURS * 3600
     payload = f"{exp}"
     sig = hmac.new(_admin_token().encode(), payload.encode(), hashlib.sha256).hexdigest()
@@ -193,8 +316,9 @@ def make_session() -> str:
 
 
 def check_session(cookie: str | None) -> bool:
-    """هل كوكي الجلسة صالح وغير منتهٍ؟"""
-    if not cookie or "." not in cookie:
+    """هل كوكي الجلسة صالح وغير منتهٍ؟ لا يرفع أي استثناء لمدخلات غريبة."""
+    token = _admin_token()
+    if not token or not cookie or "." not in cookie:
         return False
     payload, _, sig = cookie.partition(".")
     try:
@@ -203,12 +327,14 @@ def check_session(cookie: str | None) -> bool:
         return False
     if exp < time.time():
         return False
-    expected = hmac.new(_admin_token().encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, expected)
+    expected = hmac.new(token.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    # المقارنة على بايتات: compare_digest ترفع TypeError على نصوص غير ASCII
+    return hmac.compare_digest(sig.encode("utf-8", "ignore"), expected.encode())
 
 
 def check_password(password: str) -> bool:
-    """مقارنة كلمة مرور اللوحة بزمن ثابت."""
-    if not isinstance(password, str):
+    """مقارنة كلمة مرور اللوحة بزمن ثابت، وبأي أحرف (عربية وغيرها) دون انهيار."""
+    token = _admin_token()
+    if not token or not isinstance(password, str):
         return False
-    return hmac.compare_digest(password, _admin_token())
+    return hmac.compare_digest(password.encode("utf-8"), token.encode("utf-8"))
