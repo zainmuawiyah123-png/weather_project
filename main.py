@@ -298,6 +298,42 @@ async def fetch_forecast(lat: float, lon: float) -> dict:
     raise httpx.HTTPError("no response")
 
 
+async def fetch_forecast_bulk(slugs: list[str]) -> dict[str, dict]:
+    """Fetch all overview cities in one multi-location request.
+
+    Open-Meteo accepts comma-separated coordinates and returns one result per
+    location. This avoids 25 sequential cold-start requests on the map.
+    """
+    cities = [CITIES[s] for s in slugs]
+    base = {
+        "latitude": ",".join(str(c["lat"]) for c in cities),
+        "longitude": ",".join(str(c["lon"]) for c in cities),
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+        "hourly": FULL_HOURLY,
+        "models": ",".join(MODELS),
+        "timezone": "auto", "forecast_days": 7, "wind_speed_unit": "kmh",
+    }
+    if API_KEY:
+        base["apikey"] = API_KEY
+    async with httpx.AsyncClient(timeout=35) as client:
+        for attempt in range(3):
+            response = await client.get(API_URL, params=base)
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt < 2:
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+            response.raise_for_status()
+            data = response.json()
+            rows = data if isinstance(data, list) else [data]
+            if len(rows) != len(slugs):
+                raise ValueError("bulk forecast size mismatch")
+            return {
+                slug: {**raw, "models": MODELS, "_source": "Open-Meteo (bulk)"}
+                for slug, raw in zip(slugs, rows)
+            }
+    raise httpx.HTTPError("bulk forecast unavailable")
+
+
 async def get_weather(slug: str) -> dict:
     if slug not in CITIES:
         raise HTTPException(404, "المدينة غير موجودة")
@@ -526,10 +562,32 @@ async def weather(slug: str):
 @app.get("/api/overview")
 async def overview():
     slugs = list(CITIES)
-    results = await asyncio.gather(*(get_weather(s) for s in slugs), return_exceptions=True)
+    fresh = {}
+    missing = []
+    now = time.time()
+    for slug in slugs:
+        hit = _cache.get(slug)
+        if hit and now - hit[0] < CACHE_TTL:
+            fresh[slug] = hit[1]
+        else:
+            missing.append(slug)
+
+    if missing:
+        try:
+            bulk = await fetch_forecast_bulk(missing)
+            for slug, raw in bulk.items():
+                payload = build_payload(slug, raw)
+                _cache[slug] = (time.time(), payload)
+                fresh[slug] = payload
+        except (httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
+            log.warning("bulk overview fetch failed; falling back to city requests: %s", exc)
+            fallback = await asyncio.gather(*(get_weather(s) for s in missing), return_exceptions=True)
+            fresh.update({s: r for s, r in zip(missing, fallback) if not isinstance(r, Exception)})
+
     out = []
-    for slug, r in zip(slugs, results):
-        if isinstance(r, Exception):
+    for slug in slugs:
+        r = fresh.get(slug)
+        if not r:
             continue
         c = CITIES[slug]
         out.append({
