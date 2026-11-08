@@ -536,6 +536,11 @@ async def overview():
             "slug": slug, "name": c["name"], "country": c["country"],
             "lat": c["lat"], "lon": c["lon"], "elev": c["elev"],
             "temp": r["current"]["temp"] if r["current"] else None,
+            "condition": r.get("condition"),
+            "cloud": r["current"].get("cloud") if r["current"] else None,
+            "precip": r["current"].get("precip") if r["current"] else None,
+            "wind": r["current"].get("wind") if r["current"] else None,
+            "local_hour": r.get("local_hour"),
             "level": r["level"], "alerts": r["alerts"][:3],
         })
     if not out:

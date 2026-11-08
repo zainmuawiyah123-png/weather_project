@@ -130,6 +130,30 @@
   .ad-slot strong { display:block; color:var(--ink); font-size:.95rem; }
   .ad-slot span { display:block; font-size:.78rem; margin-top:3px; }
 
+  .cities-section { margin: 22px 0 8px; }
+  .cities-head { display:flex; justify-content:space-between; align-items:end; gap:10px; margin-bottom:10px; }
+  .cities-head h2 { margin:0; }
+  .city-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+  .city-card { position:relative; overflow:hidden; min-height:142px; padding:14px; border:1px solid rgba(255,255,255,.35); border-radius:18px; color:#fff; text-decoration:none; box-shadow:0 8px 22px rgba(11,47,64,.10); transition:transform .18s ease, box-shadow .18s ease; }
+  .city-card:hover, .city-card:focus-visible { transform:translateY(-2px); box-shadow:0 12px 28px rgba(11,47,64,.18); }
+  .city-card::after { content:""; position:absolute; inset:auto -12px -32px -12px; height:74px; background:radial-gradient(ellipse at center, rgba(255,255,255,.22), transparent 68%); pointer-events:none; }
+  .city-card.clear { background:linear-gradient(145deg,#177aa0,#55c6d1); }
+  .city-card.cloudy { background:linear-gradient(145deg,#496c86,#8caab5); }
+  .city-card.rain { background:linear-gradient(145deg,#263b58,#5b7396); }
+  .city-card.storm { background:linear-gradient(145deg,#342d4f,#75678d); }
+  .city-card.hot { background:linear-gradient(145deg,#b84c25,#e39a35); }
+  .city-card.night { background:linear-gradient(145deg,#172b4d,#385d83); }
+  .city-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; position:relative; z-index:1; }
+  .city-card-name { font-weight:800; font-size:1rem; }
+  .city-card-country { display:block; opacity:.78; font-size:.72rem; font-weight:400; }
+  .weather-art { width:48px; height:42px; display:grid; place-items:center; font-size:2rem; filter:drop-shadow(0 3px 2px rgba(0,0,0,.14)); }
+  .city-card-temp { position:relative; z-index:1; margin-top:8px; font-size:2rem; line-height:1; font-weight:800; }
+  .city-card-condition { position:relative; z-index:1; margin-top:7px; font-size:.82rem; font-weight:600; }
+  .city-card-meta { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; opacity:.86; font-size:.7rem; }
+  .city-card-alert { position:relative; z-index:1; display:inline-block; margin-top:7px; padding:1px 7px; border-radius:999px; background:rgba(255,255,255,.22); font-size:.68rem; }
+  .cities-loading, .cities-error { padding:16px; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--muted); }
+  @media (max-width: 520px) { .city-grid { grid-template-columns:1fr; } .city-card { min-height:128px; } }
+
   .box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
   .box p { margin: 0; }
   .box .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -155,6 +179,11 @@
 </header>
 
 <div id="home-ad" class="ad-slot" aria-live="polite"><a href="/advertise"><strong>مساحة إعلانية متاحة</strong><span>أعلن معنا في طقس بلاد الشام</span></a></div>
+
+<section class="cities-section" aria-labelledby="citiesTitle">
+  <div class="cities-head"><h2 id="citiesTitle">حالة الطقس الآن في المدن</h2><span class="muted">تتحدث تلقائياً</span></div>
+  <div id="cityGrid" class="city-grid" aria-live="polite"><p class="cities-loading">جارٍ تحميل حالة المدن…</p></div>
+</section>
 
 <main id="view" aria-live="polite"><p class="hero">جارٍ التحميل…</p></main>
 
@@ -219,6 +248,46 @@ async function loadWeather() {
     view.innerHTML = `<div class="err"><p>${esc(message)}</p><button class="btn" type="button" id="retryWeather">إعادة المحاولة</button></div>`;
     const retry = document.getElementById("retryWeather");
     if (retry) retry.onclick = loadWeather;
+  }
+}
+
+function cityVisual(c) {
+  const rain = (c.precip || 0) >= 0.2;
+  const storm = c.level >= 2;
+  const cloud = c.cloud == null ? 50 : c.cloud;
+  const night = c.local_hour != null && (c.local_hour < 6 || c.local_hour >= 19);
+  if (rain && storm) return { cls: "storm", icon: "⛈️", label: "أجواء ماطرة وعاصفة" };
+  if (rain) return { cls: "rain", icon: "🌧️", label: "أجواء ماطرة" };
+  if (cloud >= 85) return { cls: "cloudy", icon: "☁️", label: "غائم" };
+  if (cloud >= 45) return { cls: "cloudy", icon: "🌥️", label: "غائم جزئياً" };
+  if ((c.temp || 0) >= 32) return { cls: "hot", icon: night ? "🌙" : "☀️", label: "صحو وحار" };
+  return { cls: night ? "night" : "clear", icon: night ? "🌙" : "☀️", label: "صحو" };
+}
+
+function renderCityCards(cities) {
+  const grid = document.getElementById("cityGrid");
+  grid.innerHTML = cities.map(c => {
+    const v = cityVisual(c);
+    const alert = c.level ? `<span class="city-card-alert">تنبيه ${c.level === 3 ? "أحمر" : c.level === 2 ? "برتقالي" : "أصفر"}</span>` : "";
+    return `<a class="city-card ${v.cls}" href="/?city=${encodeURIComponent(c.slug)}" aria-label="${esc(c.name)}: ${esc(v.label)}">
+      <div class="city-card-top"><div class="city-card-name">${esc(c.name)}<span class="city-card-country">${esc(c.country)}</span></div><div class="weather-art" aria-hidden="true">${v.icon}</div></div>
+      <div class="city-card-temp">${c.temp == null ? "–" : Math.round(c.temp)}°</div>
+      <div class="city-card-condition">${esc(c.condition || v.label)}</div>
+      <div class="city-card-meta"><span>رياح ${c.wind == null ? "–" : Math.round(c.wind)} كم/س</span><span>غيوم ${c.cloud == null ? "–" : Math.round(c.cloud)}%</span></div>
+      ${alert}
+    </a>`;
+  }).join("");
+}
+
+async function loadOverview() {
+  const grid = document.getElementById("cityGrid");
+  try {
+    const res = await fetch("/api/overview", { cache: "no-store" });
+    const cities = await res.json();
+    if (!res.ok || !Array.isArray(cities) || !cities.length) throw new Error("تعذّر تحميل حالة المدن");
+    renderCityCards(cities);
+  } catch (e) {
+    grid.innerHTML = `<p class="cities-error">${esc(e.message || "تعذّر تحميل حالة المدن الآن")}</p>`;
   }
 }
 
@@ -401,6 +470,7 @@ function bindPush(city) {
   };
 }
 
+loadOverview();
 citySel.addEventListener("change", loadWeather);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 loadCities().then(loadWeather).catch(() => {
