@@ -147,12 +147,19 @@ function render(cities) {
 async function loadCities() {
   statusEl.textContent = "جارٍ تحديث حالة المدن…";
   try {
-    const res = await fetch("/api/overview", { cache:"no-store" });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    const res = await fetch("/api/overview", { cache:"no-store", signal:controller.signal });
+    clearTimeout(timer);
     const cities = await res.json();
     if (!res.ok || !Array.isArray(cities) || !cities.length) throw new Error("تعذّر تحميل حالة المدن الآن");
     render(cities);
+    const bounds = L.latLngBounds(cities.map(c => [c.lat, c.lon]));
+    map.fitBounds(bounds, { padding:[28,28], maxZoom:7, animate:false });
   } catch (e) {
-    statusEl.textContent = e.message || "تعذّر تحميل حالة المدن الآن";
+    const message = e.name === "AbortError" ? "استغرق تحميل بيانات المدن وقتاً أطول من المتوقع" : (e.message || "تعذّر تحميل حالة المدن الآن");
+    statusEl.innerHTML = `${esc(message)} <button type="button" id="retryMap" class="refresh" style="margin-inline-start:8px;padding:4px 10px">إعادة المحاولة</button>`;
+    document.getElementById("retryMap").addEventListener("click", loadCities);
     document.getElementById("cityGrid").innerHTML = `<p class="state">${esc(e.message || "تعذّر تحميل المدن")}</p>`;
   }
 }
